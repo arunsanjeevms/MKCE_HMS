@@ -1142,6 +1142,18 @@ if (!isset($_SESSION['user_id']) || (!isset($_SESSION['role']) && !isset($_SESSI
                                         $('#to_date').addClass('is-invalid');
                                         return;
                                     }
+                                } else if (!leaveType.includes('general')) {
+                                    // Regular leave cannot be applied on the same day
+                                    const todayStr = getTodayYmd();
+                                    const selectedFromDate = $('#from_date').val();
+
+                                    if (selectedFromDate === todayStr) {
+                                        event.preventDefault();
+                                        event.stopPropagation();
+                                        Swal.fire('Date Error', 'Leave must be applied at least one day prior. Same day application is not allowed.', 'error');
+                                        $('#from_date').addClass('is-invalid');
+                                        return;
+                                    }
                                 }
                                 
                                 if (!form.checkValidity()) {
