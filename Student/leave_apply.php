@@ -724,6 +724,46 @@ if (!isset($_SESSION['user_id']) || (!isset($_SESSION['role']) && !isset($_SESSI
                                 }
                             }
 
+                            function applyEmergencyLeaveRestrictions() {
+                                const leaveTypeSelect = $('#leave_type_id').find('option:selected');
+                                const leaveType = leaveTypeSelect.data('type-name') ? leaveTypeSelect.data('type-name').toLowerCase() : '';
+                                const fromDateInput = $('#from_date');
+                                const toDateInput = $('#to_date');
+                                const generalInfo = $('#general_leave_info');
+
+                                if (leaveType.includes('emergency')) {
+                                    const todayStr = getTodayYmd();
+
+                                    // Set from_date to today and make it readonly
+                                    fromDateInput.attr('min', todayStr).val(todayStr).prop('readonly', true);
+                                    
+                                    // Allow to_date to be flexible but minimum should be today
+                                    toDateInput.attr('min', todayStr).prop('readonly', false);
+
+                                    // Allow time selection for both from and to
+                                    unlockSelectOptions('#from_time');
+                                    unlockSelectOptions('#from_minute');
+                                    unlockSelectOptions('#from_ampm');
+                                    unlockSelectOptions('#to_time');
+                                    unlockSelectOptions('#to_minute');
+                                    unlockSelectOptions('#to_ampm');
+
+                                    generalInfo.html(`
+                                        <i class="fas fa-exclamation-circle text-warning me-1"></i>
+                                        <strong>Emergency Leave Rule:</strong> From date is restricted to <strong>Today</strong>. To date can be selected based on your need.
+                                    `).show();
+                                } else {
+                                    fromDateInput.prop('readonly', false);
+                                    toDateInput.prop('readonly', false);
+                                    unlockSelectOptions('#from_time');
+                                    unlockSelectOptions('#from_minute');
+                                    unlockSelectOptions('#from_ampm');
+                                    unlockSelectOptions('#to_time');
+                                    unlockSelectOptions('#to_minute');
+                                    unlockSelectOptions('#to_ampm');
+                                }
+                            }
+
                             // 🔑 UPDATED: Function to check General Leave Restriction and update UI
                             function checkGeneralLeaveRestriction(isEditing = false) {
                                 const leaveTypeSelect = $('#leave_type_id');
@@ -803,7 +843,10 @@ if (!isset($_SESSION['user_id']) || (!isset($_SESSION['role']) && !isset($_SESSI
                                 const tomorrowStr = tomorrow.toISOString().split('T')[0];
 
                                 // Logic for setting min date restriction
-                                if (leaveType.includes('emergency') || leaveType.includes('od')) {
+                                if (leaveType.includes('emergency')) {
+                                    // Emergency leave restrictions are handled by applyEmergencyLeaveRestrictions()
+                                    fromDateInput.attr('min', todayStr);
+                                } else if (leaveType.includes('od')) {
                                     fromDateInput.attr('min', todayStr);
                                 } else if (leaveType.includes('general')) {
                                     // As checkGeneralLeaveRestriction handles the min/max dates for general leave
@@ -834,6 +877,7 @@ if (!isset($_SESSION['user_id']) || (!isset($_SESSION['role']) && !isset($_SESSI
                             $('#leave_type_id').on('change', function() {
                                 checkGeneralLeaveRestriction($('#leave_id').val() !== '');
                                 applyOutingRestrictions();
+                                applyEmergencyLeaveRestrictions();
                             });
 
                             // 1. OPEN APPLY MODAL (NEW LEAVE)
@@ -858,6 +902,7 @@ if (!isset($_SESSION['user_id']) || (!isset($_SESSION['role']) && !isset($_SESSI
                                 checkGeneralLeaveRestriction(false); // Check restriction for NEW leave
                                 setDateRestrictions(); // Apply default date restrictions
                                 applyOutingRestrictions(); // Apply outing-specific constraints if selected
+                                applyEmergencyLeaveRestrictions(); // Apply emergency leave-specific constraints if selected
                                 
                                 // Enable leave type selection for new applications
                                 $('#leave_type_id').prop('disabled', false);
@@ -930,6 +975,7 @@ if (!isset($_SESSION['user_id']) || (!isset($_SESSION['role']) && !isset($_SESSI
                                 checkGeneralLeaveRestriction(true); // Ignore restriction for EDITING
                                 setDateRestrictions(); // Re-apply default date restrictions
                                 applyOutingRestrictions(); // Apply outing-specific constraints for edit view
+                                applyEmergencyLeaveRestrictions(); // Apply emergency leave-specific constraints for edit view
                                 $('#leaveModal').modal('show');
                             });
 
@@ -1072,6 +1118,28 @@ if (!isset($_SESSION['user_id']) || (!isset($_SESSION['role']) && !isset($_SESSI
                                         $('#to_time').addClass('is-invalid');
                                         $('#to_minute').addClass('is-invalid');
                                         $('#to_ampm').addClass('is-invalid');
+                                        return;
+                                    }
+                                }
+
+                                if (leaveType.includes('emergency')) {
+                                    const todayStr = getTodayYmd();
+                                    const selectedFromDate = $('#from_date').val();
+                                    const selectedToDate = $('#to_date').val();
+
+                                    if (selectedFromDate !== todayStr) {
+                                        event.preventDefault();
+                                        event.stopPropagation();
+                                        Swal.fire('Date Error', 'Emergency leave from date must be today only.', 'error');
+                                        $('#from_date').addClass('is-invalid');
+                                        return;
+                                    }
+
+                                    if (!selectedToDate || new Date(selectedToDate) < new Date(todayStr)) {
+                                        event.preventDefault();
+                                        event.stopPropagation();
+                                        Swal.fire('Date Error', 'Emergency leave to date must be on or after today.', 'error');
+                                        $('#to_date').addClass('is-invalid');
                                         return;
                                     }
                                 }
@@ -1278,11 +1346,15 @@ if (!isset($_SESSION['user_id']) || (!isset($_SESSION['role']) && !isset($_SESSI
                                         $('#loaderContainer').addClass('hide');
                                     },
                                     error: function(xhr, status, error) {
-                                        console.error('Error fetching data:', error);
+                                        console.error('AJAX Error (get_leaves):', error);
+                                        console.error('Status:', status);
+                                        console.error('Response Text:', xhr.responseText);
+                                        console.error('XHR:', xhr);
                                         $('#loaderContainer').addClass('hide');
                                         $('#errorContainer').html(`
                                             <div class="alert alert-danger w-100 mb-3" role="alert">
-                                                <strong>Error:</strong> Failed to load leave data. Please refresh the page.
+                                                <strong>Error:</strong> Failed to load leave data. Please refresh the page.<br>
+                                                <small>Status: ${xhr.status} ${xhr.statusText} | Error: ${error}</small>
                                             </div>
                                         `);
                                     }

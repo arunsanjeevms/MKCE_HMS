@@ -2,6 +2,10 @@
 session_start();
 include 'db.php'; // your DB connection ($conn)
 
+// Ensure only JSON is output
+error_reporting(E_ALL);
+ini_set('display_errors', '0');
+ini_set('log_errors', '1');
 
 // Utility function for sanitizing input
 function sanitize_input($data)
@@ -4078,21 +4082,9 @@ if (!empty($action)) {
                     $chkLeave->execute();
                     $leaveResult = $chkLeave->get_result();
                     if ($leaveResult->num_rows === 0) {
-                        $leaveCategory = '';
-                        $typeStmt = $conn->prepare("SELECT Leave_Type_Name FROM leave_types WHERE LeaveType_ID = ? LIMIT 1");
-                        if ($typeStmt) {
-                            $typeStmt->bind_param('i', $leave_type_id);
-                            $typeStmt->execute();
-                            $typeResult = $typeStmt->get_result();
-                            if ($typeRow = $typeResult->fetch_assoc()) {
-                                $leaveCategory = $typeRow['Leave_Type_Name'] ?? '';
-                            }
-                            $typeStmt->close();
-                        }
-
-                        $insLeave = $conn->prepare("INSERT INTO leave_applications (Reg_No, LeaveType_ID, category_of_leave, From_Date, To_Date, Reason, Status) VALUES (?, ?, ?, ?, ?, ?, 'out')");
+                        $insLeave = $conn->prepare("INSERT INTO leave_applications (Reg_No, LeaveType_ID, From_Date, To_Date, Reason, Status) VALUES (?, ?, ?, ?, ?, 'out')");
                         if ($insLeave) {
-                            $insLeave->bind_param('sissss', $roll_number, $leave_type_id, $leaveCategory, $selectedDate, $selectedDate, $reason);
+                            $insLeave->bind_param('issss', $roll_number, $leave_type_id, $selectedDate, $selectedDate, $reason);
                             $insLeave->execute();
                             $insLeave->close();
                         }
@@ -5167,21 +5159,9 @@ if (!empty($action)) {
                     if (empty($leave_type_id)) {
                         $errors[] = "Leave type is required for a new application.";
                     } else {
-                        $category_of_leave = '';
-                        $typeStmt = $conn->prepare("SELECT Leave_Type_Name FROM leave_types WHERE LeaveType_ID = ? LIMIT 1");
-                        if ($typeStmt) {
-                            $typeStmt->bind_param('i', $leave_type_id);
-                            $typeStmt->execute();
-                            $typeResult = $typeStmt->get_result();
-                            if ($typeRow = $typeResult->fetch_assoc()) {
-                                $category_of_leave = $typeRow['Leave_Type_Name'] ?? '';
-                            }
-                            $typeStmt->close();
-                        }
-
-                        $stmt = $conn->prepare("INSERT INTO leave_applications (Reg_No, LeaveType_ID, category_of_leave, From_Date, To_Date, Reason, Proof, Status, Applied_Date) VALUES (?, ?, ?, ?, ?, ?, ?, 'Pending', NOW())");
+                        $stmt = $conn->prepare("INSERT INTO leave_applications (Reg_No, LeaveType_ID, From_Date, To_Date, Reason, Proof, Status, Applied_Date) VALUES (?, ?, ?, ?, ?, ?, 'Pending', NOW())");
                         if ($stmt) {
-                            $stmt->bind_param("sisssss", $roll_no, $leave_type_id, $category_of_leave, $start_datetime, $end_datetime, $reason, $proof_file);
+                            $stmt->bind_param("isssss", $roll_no, $leave_type_id, $start_datetime, $end_datetime, $reason, $proof_file);
                             if ($stmt->execute()) {
                                 echo json_encode(['success' => true, 'message' => 'Leave application submitted successfully!']);
                             } else {
@@ -5279,7 +5259,12 @@ if (!empty($action)) {
                 $stmt = $conn->prepare("SELECT s.roll_number, s.gender, s.user_id AS student_user_id, u.username FROM users u LEFT JOIN students s ON s.user_id = u.user_id WHERE u.user_id = ? LIMIT 1");
                 if ($stmt) {
                     $stmt->bind_param("i", $user_id);
-                    $stmt->execute();
+                    if (!$stmt->execute()) {
+                        http_response_code(500);
+                        echo json_encode(['success' => false, 'message' => 'Database error: ' . $stmt->error]);
+                        $stmt->close();
+                        break;
+                    }
                     $result = $stmt->get_result();
                     $user = $result->fetch_assoc();
                     $stmt->close();
@@ -5288,6 +5273,10 @@ if (!empty($action)) {
                         $roll_no = !empty($user['roll_number']) ? $user['roll_number'] : $user['username'];
                         $student_gender = strtolower(trim($user['gender'] ?? ''));
                     }
+                } else {
+                    http_response_code(500);
+                    echo json_encode(['success' => false, 'message' => 'Database error: ' . $conn->error]);
+                    break;
                 }
             }
 
@@ -5301,57 +5290,77 @@ if (!empty($action)) {
             $general_leave_setting = ['Is_Enabled' => 0];
             $stmt_gl = $conn->prepare("SELECT GeneralLeave_ID, From_Date, To_Date, Is_Enabled FROM general_leave WHERE Is_Enabled = 1 LIMIT 1");
             if ($stmt_gl) {
-                $stmt_gl->execute();
-                $result_gl = $stmt_gl->get_result();
-                if ($result_gl->num_rows > 0) {
-                    $general_leave_setting = $result_gl->fetch_assoc();
+                if ($stmt_gl->execute()) {
+                    $result_gl = $stmt_gl->get_result();
+                    if ($result_gl->num_rows > 0) {
+                        $general_leave_setting = $result_gl->fetch_assoc();
+                    }
                 }
                 $stmt_gl->close();
             }
 
-                 $rows = [];
-                 $sql = "SELECT la.Leave_ID, la.From_Date, la.To_Date, la.Reason, la.Proof, la.Status, la.Applied_Date, 
-                          lt.Leave_Type_Name, la.LeaveType_ID, la.category_of_leave
-                    FROM leave_applications la
-                    LEFT JOIN leave_types lt ON la.LeaveType_ID = lt.LeaveType_ID
-                    WHERE la.Reg_No = ?
-                    ORDER BY la.Applied_Date DESC";
+            $rows = [];
+            $sql = "SELECT la.Leave_ID, la.From_Date, la.To_Date, la.Reason, la.Proof, la.Status, la.Applied_Date, 
+                     lt.Leave_Type_Name, la.LeaveType_ID
+                FROM leave_applications la
+                LEFT JOIN leave_types lt ON la.LeaveType_ID = lt.LeaveType_ID
+                WHERE la.Reg_No = ?
+                ORDER BY la.Applied_Date DESC";
 
             $stmt = $conn->prepare($sql);
-            if ($stmt) {
-                $stmt->bind_param("s", $roll_no);
-                $stmt->execute();
-                $result = $stmt->get_result();
-                while ($r = $result->fetch_assoc()) {
-                    $rows[] = $r;
-                }
-                $stmt->close();
-
-                // Fetch leave types
-                $leave_types = [];
-                if ($student_gender === 'female') {
-                    $stmt_lt = $conn->prepare("SELECT LeaveType_ID, Leave_Type_Name FROM leave_types WHERE LOWER(Leave_Type_Name) NOT LIKE '%outing%' ORDER BY Priority ASC, Leave_Type_Name ASC");
-                } else {
-                    $stmt_lt = $conn->prepare("SELECT LeaveType_ID, Leave_Type_Name FROM leave_types ORDER BY Priority ASC, Leave_Type_Name ASC");
-                }
-                if ($stmt_lt) {
-                    $stmt_lt->execute();
-                    $lt_res = $stmt_lt->get_result();
-                    while ($lt = $lt_res->fetch_assoc()) {
-                        $leave_types[] = $lt;
-                    }
-                    $stmt_lt->close();
-                }
-
-                echo json_encode([
-                    'success' => true,
-                    'rows' => $rows,
-                    'leave_types' => $leave_types,
-                    'general_leave_setting' => $general_leave_setting
-                ]);
-            } else {
-                echo json_encode(['success' => false, 'message' => 'Database error']);
+            if (!$stmt) {
+                http_response_code(500);
+                echo json_encode(['success' => false, 'message' => 'Prepare error: ' . $conn->error]);
+                break;
             }
+            
+            $stmt->bind_param("s", $roll_no);
+            if (!$stmt->execute()) {
+                http_response_code(500);
+                echo json_encode(['success' => false, 'message' => 'Execute error: ' . $stmt->error]);
+                $stmt->close();
+                break;
+            }
+            
+            $result = $stmt->get_result();
+            if (!$result) {
+                http_response_code(500);
+                echo json_encode(['success' => false, 'message' => 'Get result error: ' . $stmt->error]);
+                $stmt->close();
+                break;
+            }
+            
+            while ($r = $result->fetch_assoc()) {
+                $rows[] = $r;
+            }
+            $stmt->close();
+
+            // Fetch leave types
+            $leave_types = [];
+            if ($student_gender === 'female') {
+                $stmt_lt = $conn->prepare("SELECT LeaveType_ID, Leave_Type_Name FROM leave_types WHERE LOWER(Leave_Type_Name) NOT LIKE '%outing%' ORDER BY Priority ASC, Leave_Type_Name ASC");
+            } else {
+                $stmt_lt = $conn->prepare("SELECT LeaveType_ID, Leave_Type_Name FROM leave_types ORDER BY Priority ASC, Leave_Type_Name ASC");
+            }
+            
+            if ($stmt_lt) {
+                if ($stmt_lt->execute()) {
+                    $lt_res = $stmt_lt->get_result();
+                    if ($lt_res) {
+                        while ($lt = $lt_res->fetch_assoc()) {
+                            $leave_types[] = $lt;
+                        }
+                    }
+                }
+                $stmt_lt->close();
+            }
+
+            echo json_encode([
+                'success' => true,
+                'rows' => $rows,
+                'leave_types' => $leave_types,
+                'general_leave_setting' => $general_leave_setting
+            ]);
             break;
 
         case 'get_leave_types':
@@ -7468,7 +7477,11 @@ if (!empty($action)) {
 
 
         default:
-            echo "Invalid action";
+            http_response_code(400);
+            echo json_encode(['success' => false, 'message' => 'Invalid action: ' . htmlspecialchars($action)]);
             break;
     }
+} else {
+    http_response_code(400);
+    echo json_encode(['success' => false, 'message' => 'No action specified']);
 }
