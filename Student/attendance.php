@@ -317,6 +317,33 @@ if (isset($_SESSION['user_id'])) {
            
         </div>
     </div>
+
+    <!-- Detailed Attendance Records with Reason -->
+    <div class="card shadow mb-4">
+        <div class="card-header py-3">
+            <h6 class="m-0 font-weight-bold text-black">
+                <i class="fas fa-list me-2"></i> Detailed Attendance Records
+            </h6>
+        </div>
+
+        <div class="card-body">
+            <table class="table table-striped table-hover">
+                <thead class="table-dark">
+                    <tr>
+                        <th>Date</th>
+                        <th>Status</th>
+                        <th>Reason</th>
+                        <th>Marked At</th>
+                    </tr>
+                </thead>
+                <tbody id="attendanceTableBody">
+                    <tr>
+                        <td colspan="4" class="text-center text-muted">Loading attendance records...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
 </div>
 
 </div>
@@ -372,6 +399,9 @@ function loadAttendance() {
                     </div>
                 `);
             });
+            
+            // Load detailed attendance records
+            loadDetailedAttendance(month, year);
         },
         error: function(xhr, status, error) {
             console.error('AJAX Error:', error);
@@ -381,6 +411,63 @@ function loadAttendance() {
                 title: 'Error Loading Attendance',
                 text: 'Failed to load attendance data. Please try again. Error: ' + error,
             });
+        }
+    });
+}
+
+// Load detailed attendance records with reason
+function loadDetailedAttendance(month, year) {
+    $.ajax({
+        url: "../api.php",
+        method: "POST",
+        data: {
+            action: "loadDetailedAttendance",
+            month: month,
+            year: year
+        },
+        dataType: "json",
+        success: function(response) {
+            console.log('Detailed attendance response:', response);
+            const tbody = $('#attendanceTableBody');
+            tbody.empty();
+            
+            if (response.success && response.data && response.data.length > 0) {
+                // Sort by date descending
+                response.data.sort((a, b) => new Date(b.date) - new Date(a.date));
+                
+                response.data.forEach(record => {
+                    let statusBadge = '';
+                    const status = record.status;
+                    
+                    if (status === 'Present') {
+                        statusBadge = '<span class="badge bg-success">Present</span>';
+                    } else if (status === 'Absent') {
+                        statusBadge = '<span class="badge bg-danger">Absent</span>';
+                    } else if (status === 'On Leave') {
+                        statusBadge = '<span class="badge bg-info">On Leave</span>';
+                    } else if (status === 'Late Entry') {
+                        statusBadge = '<span class="badge bg-warning text-dark">Late Entry</span>';
+                    } else {
+                        statusBadge = '<span class="badge bg-secondary">Not Marked</span>';
+                    }
+                    
+                    const row = `
+                        <tr>
+                            <td>${record.date}</td>
+                            <td>${statusBadge}</td>
+                            <td>${record.reason ? record.reason : (status === 'Present' || status === 'Late Entry' ? 'N/A' : '-')}</td>
+                            <td>${record.marked_at ? record.marked_at : '-'}</td>
+                        </tr>
+                    `;
+                    tbody.append(row);
+                });
+            } else {
+                tbody.append('<tr><td colspan="4" class="text-center text-muted">No attendance records found</td></tr>');
+            }
+        },
+        error: function(xhr, status, error) {
+            console.error('Error loading detailed attendance:', error);
+            $('#attendanceTableBody').empty().append('<tr><td colspan="4" class="text-center text-danger">Error loading attendance records</td></tr>');
         }
     });
 }

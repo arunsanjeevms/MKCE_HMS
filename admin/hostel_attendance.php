@@ -894,7 +894,7 @@ Student Status
                                 <th>Floor</th>
                                 <th>Room</th>
                         <th>Marked At</th>
-
+                        <th>Reason</th>
                         <th>Status</th>
 
                     </tr>
@@ -1169,18 +1169,34 @@ $(document).ready(function() {
         const rollNumber = $(this).data('roll');
         console.log("Mark Present clicked via delegation:", rollNumber);
         
-        // Confirm action
+        // Show SweetAlert2 dialog with reason input
         Swal.fire({
-            title: 'Mark as Present?',
-            text: `Mark student ${rollNumber} as present?`,
+            title: 'Mark as Present',
+            html: `
+                <p>Mark student <strong>${rollNumber}</strong> as present?</p>
+                <div class="mb-3 text-start">
+                    <label for="swal-present-reason" class="form-label">Reason for Manual Present</label>
+                    <textarea id="swal-present-reason" class="swal2-input" placeholder="Enter reason for marking present" rows="3" style="height: 80px; width: 100%;"></textarea>
+                </div>
+            `,
             icon: 'question',
             showCancelButton: true,
             confirmButtonColor: '#28a745',
             cancelButtonColor: '#6c757d',
-            confirmButtonText: 'Yes, Mark Present',
-            cancelButtonText: 'Cancel'
+            confirmButtonText: 'Mark Present',
+            cancelButtonText: 'Cancel',
+            preConfirm: () => {
+                const reason = document.getElementById('swal-present-reason').value;
+                if (!reason || reason.trim() === '') {
+                    Swal.showValidationMessage('Please enter a reason for marking present');
+                    return false;
+                }
+                return reason;
+            }
         }).then((result) => {
             if (result.isConfirmed) {
+                const reason = result.value;
+                
                 // AJAX call to mark present
                 $.ajax({
                     url: '../api.php',
@@ -1188,6 +1204,7 @@ $(document).ready(function() {
                     data: {
                         action: 'mark_manual_present',
                         roll_number: rollNumber,
+                        reason: reason,
                         selectedDate: document.getElementById("date_input").value
                     },
                     dataType: 'json',
@@ -1489,6 +1506,7 @@ function loadPresentStudents() {
                             <td>${student.floor ?? '-'}</td>
                             <td>${student.room_number ?? '-'}</td>
                             <td>${student.marked_at}</td>
+                            <td>${student.reason ?? '-'}</td>
                             <td>${statusBadge}</td>
                         </tr>`;
                     tbody.append(row);
@@ -1504,13 +1522,13 @@ function loadPresentStudents() {
                 });
             } else {
                 console.log("No present students found");
-                tbody.append('<tr><td colspan="8" class="text-center text-muted">No Present Students Today</td></tr>');
+                tbody.append('<tr><td colspan="9" class="text-center text-muted">No Present Students Today</td></tr>');
             }
         },
         error: function(xhr, status, error) {
             console.error("AJAX Error (loadPresentStudents):", error);
             console.error("Response Text:", xhr.responseText);
-            $('#students-present-body').empty().append('<tr><td colspan="6" class="text-center text-danger">Error loading data.</td></tr>');
+            $('#students-present-body').empty().append('<tr><td colspan="9" class="text-center text-danger">Error loading data.</td></tr>');
         }
     });
 }

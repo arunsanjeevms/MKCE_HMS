@@ -3357,7 +3357,7 @@ if (!empty($action)) {
             $hostel_filter = trim($_POST['hostel_filter'] ?? $_GET['hostel_filter'] ?? '');
 
             $sql = "
-        SELECT s.roll_number, s.name, s.department, s.academic_batch, r.room_number, r.floor, a.marked_at, a.status
+        SELECT s.roll_number, s.name, s.department, s.academic_batch, r.room_number, r.floor, a.marked_at, a.status, a.reason
         FROM attendance a
         JOIN students s ON a.student_id = s.student_id
         LEFT JOIN room_students rs ON s.student_id = rs.student_id AND rs.is_active = 1 AND rs.vacated_at IS NULL
@@ -3982,9 +3982,15 @@ if (!empty($action)) {
         case 'mark_manual_present':
             $roll_number = trim($_POST['roll_number'] ?? '');
             $selectedDate = $_POST['selectedDate'] ?? date('Y-m-d');
+            $reason = trim($_POST['reason'] ?? '');
 
             if (!$roll_number) {
                 echo json_encode(['success' => false, 'message' => 'Roll number required']);
+                break;
+            }
+
+            if (!$reason) {
+                echo json_encode(['success' => false, 'message' => 'Reason required']);
                 break;
             }
 
@@ -4020,11 +4026,11 @@ if (!empty($action)) {
             $chkResult = $chk->get_result();
 
             if ($chkResult->num_rows > 0) {
-                $update = $conn->prepare("UPDATE attendance SET status = ?, marked_at = NOW() WHERE student_id = ? AND date = ?");
-                $update->bind_param('sis', $statusToSet, $student_id, $selectedDate);
+                $update = $conn->prepare("UPDATE attendance SET status = ?, reason = ?, marked_at = NOW() WHERE student_id = ? AND date = ?");
+                $update->bind_param('ssis', $statusToSet, $reason, $student_id, $selectedDate);
             } else {
-                $update = $conn->prepare("INSERT INTO attendance (student_id, roll_number, date, status, marked_at) VALUES (?, ?, ?, ?, NOW())");
-                $update->bind_param('isss', $student_id, $roll_number, $selectedDate, $statusToSet);
+                $update = $conn->prepare("INSERT INTO attendance (student_id, roll_number, date, status, reason, marked_at) VALUES (?, ?, ?, ?, ?, NOW())");
+                $update->bind_param('issss', $student_id, $roll_number, $selectedDate, $statusToSet, $reason);
             }
 
             if ($update->execute()) {
@@ -5408,6 +5414,69 @@ if (!empty($action)) {
             } catch (Exception $e) {
                 error_log("loadAttendance error for user $user_id: " . $e->getMessage());
                 echo json_encode(['success' => false, 'message' => 'An internal error occurred while fetching attendance data.']);
+            }
+            break;
+
+        case 'loadDetailedAttendance':
+            // Authenticate student
+            $user_id = null;
+            if (isset($_SESSION['user_id']) && isset($_SESSION['role']) && $_SESSION['role'] === 'student') {
+                $user_id = $_SESSION['user_id'];
+            }
+
+            if (!$user_id) {
+                echo json_encode(['success' => false, 'message' => 'User not logged in']);
+                break;
+            }
+
+            $month = isset($_POST['month']) ? (int)$_POST['month'] : null;
+            $year = isset($_POST['year']) ? (int)$_POST['year'] : null;
+
+            if (!$month || !$year) {
+                echo json_encode(['success' => false, 'message' => 'Invalid month or year']);
+                break;
+            }
+
+            try {
+                // Get roll_number from user_id
+                $stmt = $conn->prepare("SELECT roll_number FROM students WHERE user_id = ?");
+                $stmt->bind_param("i", $user_id);
+                $stmt->execute();
+                $result = $stmt->get_result();
+                $student = $result->fetch_assoc();
+                $stmt->close();
+
+                if (!$student) {
+                    echo json_encode(['success' => false, 'message' => 'Student not found']);
+                    break;
+                }
+
+                $roll_number = $student['roll_number'];
+
+                // Get attendance records for the month
+                $start_date = sprintf('%04d-%02d-01', $year, $month);
+                $end_date = date('Y-m-t', strtotime($start_date));
+
+                $stmt = $conn->prepare(
+                    "SELECT DATE_FORMAT(date, '%Y-%m-%d') AS date, status, reason, marked_at 
+                    FROM attendance 
+                    WHERE roll_number = ? AND date BETWEEN ? AND ?
+                    ORDER BY date DESC"
+                );
+                $stmt->bind_param("sss", $roll_number, $start_date, $end_date);
+                $stmt->execute();
+                $result = $stmt->get_result();
+
+                $data = [];
+                while ($row = $result->fetch_assoc()) {
+                    $data[] = $row;
+                }
+                $stmt->close();
+
+                echo json_encode(['success' => true, 'data' => $data]);
+            } catch (Exception $e) {
+                error_log("loadDetailedAttendance error for user $user_id: " . $e->getMessage());
+                echo json_encode(['success' => false, 'message' => 'Error fetching attendance details']);
             }
             break;
 
