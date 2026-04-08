@@ -857,7 +857,7 @@ if (!isset($_SESSION['user_id']) || (!isset($_SESSION['role']) && !isset($_SESSI
                                     toDateInput.attr('min', todayStr).attr('max', todayStr).val(todayStr);
                                 } else {
                                     // Default: minimum start is tomorrow
-                                    fromDateInput.attr('min', tomorrowStr);
+                                    fromDateInput.attr('min', tomorrowStr).val(tomorrowStr);
                                 }
 
                                 // Make sure To Date cannot be before From Date
