@@ -8,6 +8,23 @@ $ajaxAction = $_GET['ajax'] ?? $_POST['ajax'] ?? '';
 if ($ajaxAction) {
     header('Content-Type: application/json');
     
+    // Get Hostels List
+    $hostelAction = $_GET['ajax'] ?? $_POST['ajax'] ?? '';
+    if ($hostelAction === 'getHostels') {
+        $sql = "SELECT hostel_id, hostel_name, gender FROM hostels ORDER BY gender, hostel_name";
+        $result = mysqli_query($conn, $sql);
+        $hostels = [];
+        while($row = mysqli_fetch_assoc($result)) {
+            $hostels[] = [
+                'hostel_id' => $row['hostel_id'],
+                'hostel_name' => $row['hostel_name'],
+                'gender' => $row['gender']
+            ];
+        }
+        echo json_encode(['success' => true, 'data' => $hostels]);
+        exit;
+    }
+    
     // Helper function for leave type badge
     function renderLeaveTypeBadge($type) {
         $raw = (string)$type;
@@ -26,19 +43,37 @@ if ($ajaxAction) {
     switch ($ajaxAction) {
         case 'getPendingStats':
             // Get counts for each leave type (pending status only)
+            $hostelId = intval($_GET['hostelId'] ?? 0);
+            
             $sql = "SELECT lt.Leave_Type_Name, lt.LeaveType_ID, COUNT(la.Leave_ID) as count 
                     FROM leave_types lt
                     LEFT JOIN leave_applications la ON lt.LeaveType_ID = la.LeaveType_ID 
                         AND la.Status IN ('Pending', 'Forwarded to Admin')
-                    WHERE lt.LeaveType_ID <> 1
+                    LEFT JOIN students s ON la.Reg_No = s.roll_number
+                    LEFT JOIN rooms r ON s.room_id = r.room_id";
+            
+            if ($hostelId > 0) {
+                $sql .= " WHERE r.hostel_id = $hostelId";
+            } else {
+                $sql .= " WHERE 1=1";
+            }
+            
+            $sql .= " AND lt.LeaveType_ID <> 1
                     GROUP BY lt.LeaveType_ID, lt.Leave_Type_Name
                     ORDER BY lt.LeaveType_ID";
             $result = mysqli_query($conn, $sql);
             
             // Get total pending count
-            $totalSql = "SELECT COUNT(*) as total FROM leave_applications 
-                         WHERE Status IN ('Pending', 'Forwarded to Admin') 
-                         AND LeaveType_ID <> 1";
+            $totalSql = "SELECT COUNT(*) as total FROM leave_applications la
+                         LEFT JOIN students s ON la.Reg_No = s.roll_number
+                         LEFT JOIN rooms r ON s.room_id = r.room_id
+                         WHERE la.Status IN ('Pending', 'Forwarded to Admin') 
+                         AND la.LeaveType_ID <> 1";
+            
+            if ($hostelId > 0) {
+                $totalSql .= " AND r.hostel_id = $hostelId";
+            }
+            
             $totalResult = mysqli_query($conn, $totalSql);
             $totalRow = mysqli_fetch_assoc($totalResult);
             $totalCount = $totalRow['total'];
@@ -55,9 +90,19 @@ if ($ajaxAction) {
             exit;
             
         case 'getProcessedStats':
+            // Get hostel filter
+            $hostelId = intval($_GET['hostelId'] ?? 0);
+            
+            // Build hostel join condition
+            $hostelJoin = "LEFT JOIN students s ON la.Reg_No = s.roll_number
+                          LEFT JOIN rooms r ON s.room_id = r.room_id";
+            $hostelWhere = $hostelId > 0 ? " AND r.hostel_id = $hostelId" : "";
+            
             // Get total processed count
-            $totalSql = "SELECT COUNT(*) as total FROM leave_applications 
-                         WHERE Status IN ('Rejected by HOD','Rejected by Admin','Rejected by Parents','Approved')";
+            $totalSql = "SELECT COUNT(*) as total FROM leave_applications la
+                         $hostelJoin
+                         WHERE la.Status IN ('Rejected by HOD','Rejected by Admin','Rejected by Parents','Approved')
+                         $hostelWhere";
             $totalResult = mysqli_query($conn, $totalSql);
             $totalRow = mysqli_fetch_assoc($totalResult);
             $totalCount = $totalRow['total'];
@@ -67,6 +112,8 @@ if ($ajaxAction) {
                             FROM leave_types lt
                             LEFT JOIN leave_applications la ON lt.LeaveType_ID = la.LeaveType_ID 
                                 AND la.Status = 'Approved'
+                            $hostelJoin
+                            WHERE 1=1 $hostelWhere
                             GROUP BY lt.LeaveType_ID, lt.Leave_Type_Name
                             ORDER BY lt.LeaveType_ID";
             $approvedResult = mysqli_query($conn, $approvedSql);
@@ -76,18 +123,25 @@ if ($ajaxAction) {
                             FROM leave_types lt
                             LEFT JOIN leave_applications la ON lt.LeaveType_ID = la.LeaveType_ID 
                                 AND la.Status IN ('Rejected by HOD','Rejected by Admin','Rejected by Parents')
+                            $hostelJoin
+                            WHERE 1=1 $hostelWhere
                             GROUP BY lt.LeaveType_ID, lt.Leave_Type_Name
                             ORDER BY lt.LeaveType_ID";
             $rejectedResult = mysqli_query($conn, $rejectedSql);
             
             // Get total approved and rejected counts
-            $totalApprovedSql = "SELECT COUNT(*) as total FROM leave_applications WHERE Status = 'Approved'";
+            $totalApprovedSql = "SELECT COUNT(*) as total FROM leave_applications la
+                                $hostelJoin
+                                WHERE la.Status = 'Approved'
+                                $hostelWhere";
             $totalApprovedResult = mysqli_query($conn, $totalApprovedSql);
             $totalApprovedRow = mysqli_fetch_assoc($totalApprovedResult);
             $totalApprovedCount = $totalApprovedRow['total'];
             
-            $totalRejectedSql = "SELECT COUNT(*) as total FROM leave_applications 
-                                 WHERE Status IN ('Rejected by HOD','Rejected by Admin','Rejected by Parents')";
+            $totalRejectedSql = "SELECT COUNT(*) as total FROM leave_applications la
+                                $hostelJoin
+                                WHERE la.Status IN ('Rejected by HOD','Rejected by Admin','Rejected by Parents')
+                                $hostelWhere";
             $totalRejectedResult = mysqli_query($conn, $totalRejectedSql);
             $totalRejectedRow = mysqli_fetch_assoc($totalRejectedResult);
             $totalRejectedCount = $totalRejectedRow['total'];
@@ -114,13 +168,20 @@ if ($ajaxAction) {
             exit;
             
         case 'getPendingTable':
+            $hostelId = intval($_GET['hostelId'] ?? 0);
+            
             $sql = "SELECT la.*, s.name AS student_name, lt.Leave_Type_Name, r.room_number 
                     FROM leave_applications la
                     JOIN students s ON la.Reg_No = s.roll_number
                     LEFT JOIN rooms r ON s.room_id = r.room_id
                     JOIN leave_types lt ON la.LeaveType_ID = lt.LeaveType_ID
-                    WHERE la.Status IN ('Pending', 'Forwarded to Admin')
-                    ORDER BY la.Applied_Date DESC";
+                    WHERE la.Status IN ('Pending', 'Forwarded to Admin')";
+            
+            if ($hostelId > 0) {
+                $sql .= " AND r.hostel_id = $hostelId";
+            }
+            
+            $sql .= " ORDER BY la.Applied_Date DESC";
             $result = mysqli_query($conn, $sql);
             
             $rows = [];
@@ -152,6 +213,8 @@ if ($ajaxAction) {
             exit;
             
         case 'getProcessedTable':
+            $hostelId = intval($_GET['hostelId'] ?? 0);
+            
             $sql = "SELECT la.*, 
                            s.name AS student_name, 
                            lt.Leave_Type_Name, 
@@ -167,8 +230,13 @@ if ($ajaxAction) {
                     JOIN students s ON la.Reg_No = s.roll_number
                     LEFT JOIN rooms r ON s.room_id = r.room_id
                     JOIN leave_types lt ON la.LeaveType_ID = lt.LeaveType_ID
-                    WHERE la.Status IN ('Rejected by HOD','Rejected by Admin','Rejected by Parents','Approved','out','closed','late entry','IVR Pending') 
-                    ORDER BY la.Leave_ID DESC";
+                    WHERE la.Status IN ('Rejected by HOD','Rejected by Admin','Rejected by Parents','Approved','out','closed','late entry','IVR Pending')";
+            
+            if ($hostelId > 0) {
+                $sql .= " AND r.hostel_id = $hostelId";
+            }
+            
+            $sql .= " ORDER BY la.Leave_ID DESC";
             $result = mysqli_query($conn, $sql);
             
             $rows = [];
@@ -217,6 +285,8 @@ if ($ajaxAction) {
     if (in_array($action, ['pending_pdf', 'pending_excel', 'approved_pdf', 'approved_excel'])) {
         // Fetch data functions
         function fetch_pending(mysqli $conn): array {
+                        $hostelId = intval($_GET['hostelId'] ?? 0);
+                        
                         $sql = "SELECT la.*, s.name AS student_name, lt.Leave_Type_Name, r.room_number
                                         FROM leave_applications la
                                         JOIN students s ON la.Reg_No = s.roll_number
@@ -224,6 +294,10 @@ if ($ajaxAction) {
                                         JOIN leave_types lt ON la.LeaveType_ID = lt.LeaveType_ID
                                         WHERE la.Status IN ('Pending', 'Forwarded to Admin')
                                             AND la.LeaveType_ID <> 1";
+                        
+                        if ($hostelId > 0) {
+                                $sql .= " AND r.hostel_id = $hostelId";
+                        }
 
                         // Apply global search filter (q) when provided from DataTables
                         $q = trim((string)($_GET['q'] ?? ''));
@@ -241,12 +315,18 @@ if ($ajaxAction) {
         }
         
         function fetch_approved(mysqli $conn): array {
+            $hostelId = intval($_GET['hostelId'] ?? 0);
+            
             $sql = "SELECT la.*, s.name AS student_name, lt.Leave_Type_Name, r.room_number
                     FROM leave_applications la
                     JOIN students s ON la.Reg_No = s.roll_number
                     LEFT JOIN rooms r ON s.room_id = r.room_id
                     JOIN leave_types lt ON la.LeaveType_ID = lt.LeaveType_ID
                     WHERE la.Status IN ('Rejected by HOD','Rejected by Admin','Rejected by Parents','Approved','out','closed','late entry')";
+            
+            if ($hostelId > 0) {
+                    $sql .= " AND r.hostel_id = $hostelId";
+            }
 
             // Apply global search filter (q) when provided from DataTables
             $q = trim((string)($_GET['q'] ?? ''));
@@ -1262,6 +1342,27 @@ if ($ajaxAction) {
                         </div>
 
 
+                        <!-- Hostel Filter for Pending -->
+                        <div class="mb-3" style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                            <div class="row align-items-center">
+                                <div class="col-md-4">
+                                    <label for="pendingHostelFilter" class="form-label fw-bold mb-0">
+                                        <i class="fas fa-building"></i> Filter by Hostel:
+                                    </label>
+                                </div>
+                                <div class="col-md-6">
+                                    <select id="pendingHostelFilter" class="form-select">
+                                        <option value="0">All Hostels</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-2 text-end">
+                                    <button class="btn btn-sm btn-secondary" id="clearPendingHostelFilter">
+                                        <i class="fas fa-times"></i> Clear
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- Export Buttons for Pending -->
                         <div class="d-flex justify-content-end mb-2">
                             <a href="?action=pending_pdf" data-base="?action=pending_pdf" target="_blank" style="margin-right: 5px;" class="btn btn-danger btn-sm export-pending-pdf">
@@ -1352,6 +1453,27 @@ if ($ajaxAction) {
                             </div>
                         </div>
 
+
+                        <!-- Hostel Filter for Processed -->
+                        <div class="mb-3" style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                            <div class="row align-items-center">
+                                <div class="col-md-4">
+                                    <label for="processedHostelFilter" class="form-label fw-bold mb-0">
+                                        <i class="fas fa-building"></i> Filter by Hostel:
+                                    </label>
+                                </div>
+                                <div class="col-md-6">
+                                    <select id="processedHostelFilter" class="form-select">
+                                        <option value="0">All Hostels</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-2 text-end">
+                                    <button class="btn btn-sm btn-secondary" id="clearProcessedHostelFilter">
+                                        <i class="fas fa-times"></i> Clear
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
 
                         <!-- Export Buttons for Processed -->
                         <div class="d-flex justify-content-end mb-2">
@@ -1536,6 +1658,48 @@ if ($ajaxAction) {
 
         // ===================== AJAX Data Loading Functions =====================
         
+        // Load Hostels
+        function loadHostels() {
+            return $.ajax({
+                url: 'leave_approve.php',
+                type: 'GET',
+                data: { ajax: 'getHostels' },
+                dataType: 'json',
+                success: function(response) {
+                    if (response.success && response.data.length > 0) {
+                        // Group by gender
+                        var femaleHostels = response.data.filter(h => h.gender.toLowerCase() === 'female');
+                        var maleHostels = response.data.filter(h => h.gender.toLowerCase() === 'male');
+                        
+                        // Build option groups
+                        var html = '<option value="0">All Hostels</option>';
+                        
+                        if (femaleHostels.length > 0) {
+                            html += '<optgroup label="Girls Hostels">';
+                            femaleHostels.forEach(function(hostel) {
+                                html += '<option value="' + hostel.hostel_id + '">' + hostel.hostel_name + '</option>';
+                            });
+                            html += '</optgroup>';
+                        }
+                        
+                        if (maleHostels.length > 0) {
+                            html += '<optgroup label="Boys Hostels">';
+                            maleHostels.forEach(function(hostel) {
+                                html += '<option value="' + hostel.hostel_id + '">' + hostel.hostel_name + '</option>';
+                            });
+                            html += '</optgroup>';
+                        }
+                        
+                        $('#pendingHostelFilter').html(html);
+                        $('#processedHostelFilter').html(html);
+                    }
+                },
+                error: function() {
+                    console.error('Failed to load hostels');
+                }
+            });
+        }
+        
         // Icons for leave types
         var leaveTypeIcons = {
             'Medical Leave': 'fa-user-doctor',
@@ -1549,10 +1713,12 @@ if ($ajaxAction) {
         
         // Load Pending Stats
         function loadPendingStats() {
+            var hostelId = $('#pendingHostelFilter').val();
+            
             return $.ajax({
                 url: 'leave_approve.php',
                 type: 'GET',
-                data: { ajax: 'getPendingStats' },
+                data: { ajax: 'getPendingStats', hostelId: hostelId },
                 dataType: 'json',
                 success: function(response) {
                     if (response.success) {
@@ -1590,10 +1756,12 @@ if ($ajaxAction) {
         
         // Load Processed Stats
         function loadProcessedStats() {
+            var hostelId = $('#processedHostelFilter').val();
+            
             return $.ajax({
                 url: 'leave_approve.php',
                 type: 'GET',
-                data: { ajax: 'getProcessedStats' },
+                data: { ajax: 'getProcessedStats', hostelId: hostelId },
                 dataType: 'json',
                 success: function(response) {
                     if (response.success) {
@@ -1614,10 +1782,12 @@ if ($ajaxAction) {
         
         // Load Pending Table
         function loadPendingTable() {
+            var hostelId = $('#pendingHostelFilter').val();
+            
             return $.ajax({
                 url: 'leave_approve.php',
                 type: 'GET',
-                data: { ajax: 'getPendingTable' },
+                data: { ajax: 'getPendingTable', hostelId: hostelId },
                 dataType: 'json',
                 success: function(response) {
                     if (response.success) {
@@ -1682,10 +1852,12 @@ if ($ajaxAction) {
         
         // Load Processed Table
         function loadProcessedTable() {
+            var hostelId = $('#processedHostelFilter').val();
+            
             return $.ajax({
                 url: 'leave_approve.php',
                 type: 'GET',
-                data: { ajax: 'getProcessedTable' },
+                data: { ajax: 'getProcessedTable', hostelId: hostelId },
                 dataType: 'json',
                 success: function(response) {
                     if (response.success) {
@@ -1840,17 +2012,52 @@ if ($ajaxAction) {
         };
         
         // Initial load (stats -> tables)
-        reloadAllData();
+        loadHostels().always(function() {
+            reloadAllData();
+        });
+        
+        // ===================== Hostel Filter Event Handlers =====================
+        // Pending tab hostel filter
+        $(document).on('change', '#pendingHostelFilter', function() {
+            reloadAllData();
+        });
+        
+        // Clear pending hostel filter
+        $(document).on('click', '#clearPendingHostelFilter', function() {
+            $('#pendingHostelFilter').val('0');
+            reloadAllData();
+        });
+        
+        // Processed tab hostel filter
+        $(document).on('change', '#processedHostelFilter', function() {
+            reloadAllData();
+        });
+        
+        // Clear processed hostel filter
+        $(document).on('click', '#clearProcessedHostelFilter', function() {
+            $('#processedHostelFilter').val('0');
+            reloadAllData();
+        });
 
         // Export links: append DataTable search (global) as ?q=... so server filters exported data
-        function buildExportUrl(base, tableSelector) {
+        function buildExportUrl(base, tableSelector, hostelFilterSelector) {
             try {
                 if (!tableSelector) return base;
                 var dt = $(tableSelector).DataTable && $.fn.DataTable.isDataTable(tableSelector) ? $(tableSelector).DataTable() : null;
                 var q = '';
                 if (dt) q = dt.search() || '';
-                if (q) return base + '&q=' + encodeURIComponent(q);
-                return base;
+                
+                var hostelId = $(hostelFilterSelector).val() || '0';
+                
+                var url = base;
+                if (hostelId && hostelId !== '0') {
+                    url += '&hostelId=' + encodeURIComponent(hostelId);
+                }
+                if (q) {
+                    url += '&q=' + encodeURIComponent(q);
+                }
+                
+                return url;
             } catch (e) {
                 return base;
             }
@@ -1859,7 +2066,7 @@ if ($ajaxAction) {
         // Pending exports
         $(document).on('click', '.export-pending-pdf, .export-pending-excel', function(e){
             var base = $(this).data('base') || $(this).attr('href');
-            var url = buildExportUrl(base, '#ivr-pending-leave-table');
+            var url = buildExportUrl(base, '#ivr-pending-leave-table', '#pendingHostelFilter');
             $(this).attr('href', url);
             // allow normal navigation to continue
         });
@@ -1867,7 +2074,7 @@ if ($ajaxAction) {
         // Processed exports
         $(document).on('click', '.export-processed-pdf, .export-processed-excel', function(e){
             var base = $(this).data('base') || $(this).attr('href');
-            var url = buildExportUrl(base, '#processed-leave-table');
+            var url = buildExportUrl(base, '#processed-leave-table', '#processedHostelFilter');
             $(this).attr('href', url);
         });
 
