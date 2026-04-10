@@ -246,13 +246,14 @@ $scopeGender = get_hostel_gender_scope_for_role();
             left: var(--sidebar-width);
             right: 0;
             top: var(--topbar-height);
-            bottom: var(--footer-height);
+            bottom: calc(var(--footer-height) + 20px);
             background: rgba(255, 255, 255, 0.95);
             display: flex;
             justify-content: center;
             align-items: center;
-            z-index: 1000;
+            z-index: 500;
             transition: left 0.3s ease;
+            pointer-events: none;
         }
 
         .sidebar.collapsed+.content .loader-container {
@@ -745,7 +746,7 @@ $scopeGender = get_hostel_gender_scope_for_role();
         </div>
 
         <?php include '../assets/topbar.php'; ?>
-
+<?php include '../assets/footer.php'; ?>
         <?php
         // Ensure DB connection is available for dynamic hostel loading
         // db.php lives in the same folder as this file (dash_attend/db.php)
@@ -2581,7 +2582,7 @@ doc.save(fileName);
     });
 </script>
     
-    <?php include '../assets/footer.php'; ?>
+    
 </body>
 
 </html>
