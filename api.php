@@ -5717,11 +5717,12 @@ if (!empty($action)) {
                 $user_id = null;
                 $roll_no = null;
                 $student_gender = '';
+                $student_id = 0;
                 if (isset($_SESSION['user_id']) && isset($_SESSION['role']) && $_SESSION['role'] === 'student') {
                     $user_id = $_SESSION['user_id'];
 
                 // Get roll number for authenticated users
-                $stmt = $conn->prepare("SELECT s.roll_number, s.gender, s.user_id AS student_user_id, u.username FROM users u INNER JOIN students s ON s.user_id = u.user_id WHERE u.user_id = ? LIMIT 1");
+                    $stmt = $conn->prepare("SELECT s.student_id, s.roll_number, s.gender, s.user_id AS student_user_id, u.username FROM users u INNER JOIN students s ON s.user_id = u.user_id WHERE u.user_id = ? LIMIT 1");
                 if ($stmt) {
                     $stmt->bind_param("i", $user_id);
                     $stmt->execute();
@@ -5730,16 +5731,35 @@ if (!empty($action)) {
                     $stmt->close();
 
                     if ($user) {
+                            $student_id = (int)($user['student_id'] ?? 0);
                         $roll_no = $user['roll_number'];
                         $student_gender = strtolower(trim($user['gender'] ?? ''));
                     }
                 }
             }
 
-                if (!$user_id || !$roll_no) {
+                if (!$user_id || !$roll_no || $student_id <= 0) {
                     http_response_code(403);
                     echo json_encode(['success' => false, 'message' => 'Unauthorized']);
                     break;
+                }
+
+                // If student is actively blocked, they cannot apply any leave category.
+                $stmt_blocked = $conn->prepare("SELECT id FROM blocked_students WHERE student_id = ? AND unblocked_at IS NULL LIMIT 1");
+                if ($stmt_blocked) {
+                    $stmt_blocked->bind_param("i", $student_id);
+                    $stmt_blocked->execute();
+                    $blocked_result = $stmt_blocked->get_result();
+                    $is_blocked = $blocked_result && $blocked_result->num_rows > 0;
+                    $stmt_blocked->close();
+
+                    if ($is_blocked) {
+                        echo json_encode([
+                            'success' => false,
+                            'errors' => ['You are blocked by admin and cannot apply leave.']
+                        ]);
+                        break;
+                    }
                 }
 
             // Fetch general leave setting with gender scope fallback to common(admin)
