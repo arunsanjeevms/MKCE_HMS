@@ -820,7 +820,6 @@ if (isset($_POST['action']) && $_POST['action'] === 'disable_time') {
                         <div class="mb-3">
                             <label for="hostelFilterBlocked" class="form-label me-2" style="font-weight:600">Hostel:</label>
                                 <select id="hostelFilterBlocked" class="form-select w-auto d-inline-block">
-                                    <option value="">All Hostels</option>
                                 </select>
                         </div>
 
@@ -855,7 +854,6 @@ if (isset($_POST['action']) && $_POST['action'] === 'disable_time') {
                         <div class="mb-3">
                             <label for="hostelFilterLate" class="form-label me-2" style="font-weight:600">Hostel:</label>
                             <select id="hostelFilterLate" class="form-select w-auto d-inline-block">
-                                <option value="">All Hostels</option>
                             </select>
                         </div>
 
@@ -1109,11 +1107,33 @@ if (isset($_POST['action']) && $_POST['action'] === 'disable_time') {
             dataType: 'json',
             success: function(res) {
                 if (res && res.success && Array.isArray(res.data)) {
-                    // Filter to only include Muthulakshmi, Veda, and Octa
-                    var wanted = ['muthulakshmi', 'veda', 'octa'];
+                    // Filter hostels based on admin role
+                    // female_admin: Muthulakshmi only
+                    // male_admin: Octa and Veda only
+                    // admin (super): All three
+                    <?php
+                    $role = get_current_session_role();
+                    $isFemaleAdmin = ($role === 'female_admin');
+                    $isMaleAdmin = ($role === 'male_admin');
+                    ?>
+                    
+                    var isAdmin = <?php echo $isFemaleAdmin ? 'true' : 'false'; ?>;
+                    var isMaleAdmin = <?php echo $isMaleAdmin ? 'true' : 'false'; ?>;
+                    
                     var filteredHostels = res.data.filter(function(h) {
                         var lname = (h.hostel_name || '').toLowerCase().trim();
-                        return wanted.some(function(w) { return lname.indexOf(w) !== -1; });
+                        
+                        if (isAdmin) {
+                            // Female admin: only Muthulakshmi
+                            return lname.indexOf('muthulakshmi') !== -1;
+                        } else if (isMaleAdmin) {
+                            // Male admin: Octa and Veda
+                            return lname.indexOf('octa') !== -1 || lname.indexOf('veda') !== -1;
+                        } else {
+                            // Super admin: all three
+                            var wanted = ['muthulakshmi', 'veda', 'octa'];
+                            return wanted.some(function(w) { return lname.indexOf(w) !== -1; });
+                        }
                     });
 
                     // Build options without "All Hostels"
@@ -1127,8 +1147,12 @@ if (isset($_POST['action']) && $_POST['action'] === 'disable_time') {
                     // Only populate if we have hostels
                     if (opts) {
                         $('#hostelFilterTime').html(opts);
+                        $('#hostelFilterBlocked').html(opts);
+                        $('#hostelFilterLate').html(opts);
                     } else {
                         $('#hostelFilterTime').html('<option value="">No hostels available</option>');
+                        $('#hostelFilterBlocked').html('<option value="">No hostels available</option>');
+                        $('#hostelFilterLate').html('<option value="">No hostels available</option>');
                     }
 
                     // Restore previously selected hostel from localStorage (if any)
@@ -1138,13 +1162,21 @@ if (isset($_POST['action']) && $_POST['action'] === 'disable_time') {
                         // If saved value exists in options, select it
                         if ($('#hostelFilterTime option[value="' + saved + '"]').length > 0) {
                             $('#hostelFilterTime').val(saved);
+                            $('#hostelFilterBlocked').val(saved);
+                            $('#hostelFilterLate').val(saved);
                         } else {
                             // saved not available (maybe hostels changed) -> select first available
-                            $('#hostelFilterTime').val($('#hostelFilterTime option:first').val());
+                            var firstVal = $('#hostelFilterTime option:first').val();
+                            $('#hostelFilterTime').val(firstVal);
+                            $('#hostelFilterBlocked').val(firstVal);
+                            $('#hostelFilterLate').val(firstVal);
                         }
                     } else {
                         // If no saved value, select first hostel by default
-                        $('#hostelFilterTime').val($('#hostelFilterTime option:first').val());
+                        var firstVal = $('#hostelFilterTime option:first').val();
+                        $('#hostelFilterTime').val(firstVal);
+                        $('#hostelFilterBlocked').val(firstVal);
+                        $('#hostelFilterLate').val(firstVal);
                     }
 
                     // After populating and restoring selection, load lists

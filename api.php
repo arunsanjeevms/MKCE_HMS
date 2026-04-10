@@ -4091,7 +4091,16 @@ if (!empty($action)) {
             break;
 
         case 'load_blocked':
+            // Include admin_scope functions
+            if (!file_exists(__DIR__ . '/admin/admin_scope.php')) {
+                echo json_encode(['success' => false, 'message' => 'Admin scope file not found']);
+                break;
+            }
+            include_once __DIR__ . '/admin/admin_scope.php';
+            
             $hostel_filter = trim($_POST['hostel_filter'] ?? $_GET['hostel_filter'] ?? '');
+            $genderScope = get_hostel_gender_scope_for_role();
+            
             $sql = "
             SELECT 
                 s.roll_number,
@@ -4110,9 +4119,14 @@ if (!empty($action)) {
                 AND rs.is_active = 1 
                 AND rs.vacated_at IS NULL
             LEFT JOIN rooms r ON rs.room_id = r.room_id
+            LEFT JOIN hostels h ON r.hostel_id = h.hostel_id
             WHERE b.unblocked_at IS NULL
         ";
 
+            // Add gender scope filter for male_admin and female_admin
+            if ($genderScope !== null) {
+                $sql .= " AND h.gender = '" . addslashes($genderScope) . "'";
+            }
 
             if ($hostel_filter !== '') {
                 // Allow filtering by numeric hostel_id or by hostel_name (fallback)
@@ -4183,6 +4197,13 @@ if (!empty($action)) {
             break;
 
         case 'block_student':
+            // Include admin_scope functions
+            if (!file_exists(__DIR__ . '/admin/admin_scope.php')) {
+                echo json_encode(['success' => false, 'message' => 'Admin scope file not found']);
+                break;
+            }
+            include_once __DIR__ . '/admin/admin_scope.php';
+            
             $roll_number = $_POST['roll_number'] ?? '';
             $reason = $_POST['reason'] ?? '';
             $type = $_POST['type'] ?? '';
@@ -4192,18 +4213,42 @@ if (!empty($action)) {
                 break;
             }
 
-            $stmt = $conn->prepare("SELECT student_id FROM students WHERE roll_number = ?");
-            $stmt->bind_param("s", $roll_number);
+            // Get gender scope for current admin
+            $genderScope = get_hostel_gender_scope_for_role();
+            
+            // Find student and verify they belong to admin's gender scope
+            if ($genderScope !== null) {
+                // For male_admin and female_admin, verify student is in their gender's hostel
+                $stmt = $conn->prepare("
+                    SELECT s.student_id 
+                    FROM students s
+                    LEFT JOIN room_students rs ON s.student_id = rs.student_id 
+                        AND rs.is_active = 1 
+                        AND rs.vacated_at IS NULL
+                    LEFT JOIN rooms r ON rs.room_id = r.room_id
+                    LEFT JOIN hostels h ON r.hostel_id = h.hostel_id
+                    WHERE s.roll_number = ? AND h.gender = ?
+                    LIMIT 1
+                ");
+                $stmt->bind_param("ss", $roll_number, $genderScope);
+            } else {
+                // For super admin, no gender restriction
+                $stmt = $conn->prepare("SELECT student_id FROM students WHERE roll_number = ?");
+                $stmt->bind_param("s", $roll_number);
+            }
+            
             $stmt->execute();
             $result = $stmt->get_result();
 
             if ($result->num_rows === 0) {
                 echo json_encode(['success' => false, 'message' => 'Student not found']);
+                $stmt->close();
                 break;
             }
 
             $student = $result->fetch_assoc();
             $student_id = $student['student_id'];
+            $stmt->close();
 
             //checking block status
             $stmt = $conn->prepare("SELECT id FROM blocked_students WHERE student_id = ? AND unblocked_at IS NULL");
@@ -4213,8 +4258,10 @@ if (!empty($action)) {
 
             if ($blockedResult->num_rows > 0) {
                 echo json_encode(['success' => false, 'message' => 'Student already blocked']);
+                $stmt->close();
                 break;
             }
+            $stmt->close();
 
             $stmt = $conn->prepare("INSERT INTO blocked_students (student_id, reason, type) VALUES (?, ?, ?)");
             $stmt->bind_param("iss", $student_id, $reason, $type);
@@ -4224,6 +4271,7 @@ if (!empty($action)) {
             } else {
                 echo json_encode(['success' => false, 'message' => 'Failed to block student']);
             }
+            $stmt->close();
             break;
 
         case 'add_restriction':
@@ -4406,7 +4454,16 @@ if (!empty($action)) {
             break;
 
         case 'load_late_attendance':
+            // Include admin_scope functions
+            if (!file_exists(__DIR__ . '/admin/admin_scope.php')) {
+                echo json_encode(['success' => false, 'message' => 'Admin scope file not found']);
+                break;
+            }
+            include_once __DIR__ . '/admin/admin_scope.php';
+            
             $hostel_filter = trim($_POST['hostel_filter'] ?? $_GET['hostel_filter'] ?? '');
+            $genderScope = get_hostel_gender_scope_for_role();
+            
             $sql = "
             SELECT 
                 s.student_id,
@@ -4425,9 +4482,14 @@ if (!empty($action)) {
                 AND rs.is_active = 1 
                 AND rs.vacated_at IS NULL
             LEFT JOIN rooms r ON rs.room_id = r.room_id
+            LEFT JOIN hostels h ON r.hostel_id = h.hostel_id
             WHERE a.status = 'Late Entry'
         ";
 
+            // Add gender scope filter for male_admin and female_admin
+            if ($genderScope !== null) {
+                $sql .= " AND h.gender = '" . addslashes($genderScope) . "'";
+            }
 
             if ($hostel_filter !== '') {
                 // Allow filtering by numeric hostel_id or by hostel_name (fallback)
