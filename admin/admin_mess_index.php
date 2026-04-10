@@ -930,6 +930,18 @@ if (!is_any_admin_role()) {
                             <i class="fas fa-ticket-alt"></i> Token Requests
                         </button>
                     </li>
+                    <?php if ($_SESSION['role'] === 'admin') { ?>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#revenue" type="button" role="tab">
+                            <i class="fas fa-dollar-sign"></i> Revenue
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#consumption" type="button" role="tab">
+                            <i class="fas fa-chart-pie"></i> Consumption
+                        </button>
+                    </li>
+                    <?php } ?>
                     <li class="nav-item" role="presentation">
                         <button class="nav-link" data-bs-toggle="tab" data-bs-target="#history" type="button" role="tab">
                             <i class="fas fa-history"></i> History
@@ -1068,6 +1080,86 @@ if (!is_any_admin_role()) {
                         </div>
                     </div>
 
+                    <?php if ($_SESSION['role'] === 'admin') { ?>
+                    <!-- Revenue Tab -->
+                    <div class="tab-pane fade" id="revenue" role="tabpanel">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h5><i class="fas fa-dollar-sign"></i> Revenue Analysis</h5>
+                            <button class="btn btn-success" onclick="exportRevenue()"><i class="fas fa-file-pdf"></i> Export PDF</button>
+                        </div>
+
+                        <!-- Month Filter -->
+                        <div class="row mb-3">
+                            <div class="col-md-3">
+                                <label class="form-label"><strong>Select Month:</strong></label>
+                                <input type="month" id="revenueFilterMonth" class="form-control">
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label">&nbsp;</label>
+                                <button class="btn btn-primary w-100" onclick="applyRevenueFilter()"><i class="fas fa-filter"></i> Apply</button>
+                            </div>
+                        </div>
+
+                        <div class="table-responsive">
+                            <table id="revenueTable" class="table table-bordered table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>S.No</th>
+                                        <th>Date</th>
+                                        <th>Tokens Count</th>
+                                        <th>Revenue (Rs.)</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td colspan="4" class="text-center">Select a month to view revenue</td>
+                                    </tr>
+                                </tbody>
+                                <tfoot></tfoot>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Consumption Tab -->
+                    <div class="tab-pane fade" id="consumption" role="tabpanel">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h5><i class="fas fa-chart-pie"></i> Student Consumption</h5>
+                            <button class="btn btn-success" onclick="exportConsumption()"><i class="fas fa-file-pdf"></i> Export PDF</button>
+                        </div>
+
+                        <!-- Month Filter -->
+                        <div class="row mb-3">
+                            <div class="col-md-3">
+                                <label class="form-label"><strong>Select Month:</strong></label>
+                                <input type="month" id="consumptionFilterMonth" class="form-control">
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label">&nbsp;</label>
+                                <button class="btn btn-primary w-100" onclick="applyConsumptionFilter()"><i class="fas fa-filter"></i> Apply</button>
+                            </div>
+                        </div>
+
+                        <div class="table-responsive">
+                            <table id="consumptionTable" class="table table-bordered table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>S.No</th>
+                                        <th>Roll Number</th>
+                                        <th>Student Name</th>
+                                        <th>Tokens Count</th>
+                                        <th>Total Spent (Rs.)</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td colspan="5" class="text-center">Select a month to view consumption</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <?php } ?>
+
                     <div class="tab-pane fade" id="history" role="tabpanel">
                         <div class="d-flex justify-content-between align-items-center mb-3">
                             <h5><i class="fas fa-history"></i> Activity History</h5>
@@ -1179,6 +1271,8 @@ if (!is_any_admin_role()) {
             menu: null,
             special: null,
             requests: null,
+            revenue: null,
+            consumption: null,
             history: null
         };
 
@@ -1518,93 +1612,203 @@ if (!is_any_admin_role()) {
             }, 'json');
         }
 
-        function loadRevenue() {
-            $('#revenueLoading').show();
-            const month = $('#revenueMonth').val();
+        function applyRevenueFilter() {
+            const month = $('#revenueFilterMonth').val();
+            if (!month) {
+                Swal.fire('Error', 'Please select a month', 'error');
+                return;
+            }
+
             $.ajax({
                 url: '../api.php',
                 type: 'POST',
                 data: {
-                    action: 'get_monthly_revenue',
-                    month: month
+                    action: 'get_revenue',
+                    filter_month: month
                 },
-                dataType: 'json',
-                success: function(response) {
-                    $('#revenueLoading').hide();
-                    if (response.success) displayRevenue(response.data, response.total);
-                },
-                error: function(err) {
-                    $('#revenueLoading').hide();
-                    console.log('Revenue error:', err);
+                dataType: 'json'
+            }).done(function(response) {
+                if (response && response.success) {
+                    displayRevenue(response.data);
+                } else {
+                    displayRevenue([]);
                 }
+            }).fail(function() {
+                displayRevenue([]);
             });
         }
 
-        function displayRevenue(data, total) {
+        function displayRevenue(data) {
             if (tables.revenue) {
                 tables.revenue.destroy();
                 tables.revenue = null;
             }
-            const tbody = $('#revenueTable tbody').empty();
+
+            const $table = $('#revenueTable');
+            const $tbody = $table.find('tbody');
+            const $tfoot = $table.find('tfoot');
+
+            $tbody.empty();
+            $tfoot.empty();
+
             if (!data || data.length === 0) {
-                tbody.html('<tr><td colspan="3" class="text-center">No revenue data</td></tr>');
-                $('#totalRevenue').text('₹0.00');
+                $tbody.html(
+                    '<tr><td colspan="4" class="text-center">No revenue data found for selected month</td></tr>'
+                );
                 return;
             }
-            data.forEach((item) => {
-                tbody.append(`<tr><td><strong>${item.date}</strong></td><td>${item.tokens_count}</td><td>₹${parseFloat(item.revenue).toFixed(2)}</td></tr>`);
+
+            let totalRevenue = 0;
+            let totalTokens = 0;
+
+            data.forEach(function(row, index) {
+                const revenue = parseFloat(row.revenue || 0);
+                const tokens = parseInt(row.tokens_count || 0, 10);
+
+                totalRevenue += revenue;
+                totalTokens += tokens;
+
+                const dateText = row.date ?
+                    new Date(row.date).toLocaleDateString('en-GB') :
+                    'N/A';
+
+                $tbody.append(`
+            <tr>
+                <td>${index + 1}</td>
+                <td>${dateText}</td>
+                <td>${tokens}</td>
+                <td>Rs.${revenue.toFixed(2)}</td>
+            </tr>
+        `);
             });
-            $('#totalRevenue').text('₹' + parseFloat(total).toFixed(2));
-            tables.revenue = $('#revenueTable').DataTable({
+
+            // TOTAL row in FOOTER
+            $tfoot.append(`
+        <tr class="table-info fw-bold" style="align-items: center;">
+            <td></td>
+            <td>TOTAL</td>
+            <td>${totalTokens}</td>
+            <td>Rs.${totalRevenue.toFixed(2)}</td>
+        </tr>
+    `);
+
+            tables.revenue = $table.DataTable({
                 paging: true,
                 searching: true,
-                ordering: true
+                ordering: true,
+                pageLength: 31,
+                order: [
+                    [1, 'desc']
+                ],
+                columnDefs: [{
+                        className: "text-center",
+                        targets: "_all"
+                    }
+                ]
             });
         }
 
-        function loadConsumption() {
-            $('#consumptionLoading').show();
-            const month = $('#consumptionMonth').val();
+        // ========== CONSUMPTION FUNCTIONS ==========
+        function applyConsumptionFilter() {
+            const month = $('#consumptionFilterMonth').val();
+            if (!month) {
+                Swal.fire('Error', 'Please select a month', 'error');
+                return;
+            }
+
             $.ajax({
                 url: '../api.php',
                 type: 'POST',
                 data: {
-                    action: 'get_student_consumption',
-                    month: month
+                    action: 'get_consumption',
+                    filter_month: month
                 },
-                dataType: 'json',
-                success: function(response) {
-                    $('#consumptionLoading').hide();
-                    if (response.success) displayConsumption(response.data);
-                },
-                error: function(err) {
-                    $('#consumptionLoading').hide();
-                    console.log('Consumption error:', err);
+                dataType: 'json'
+            }).done(function(response) {
+                if (response && response.success) {
+                    displayConsumption(response.data);
+                } else {
+                    displayConsumption([]);
                 }
+            }).fail(function() {
+                displayConsumption([]);
             });
         }
 
         function displayConsumption(data) {
-            if (tables.consumption) {
-                tables.consumption.destroy();
-                tables.consumption = null;
+            const $table = $('#consumptionTable');
+
+            // Safely destroy existing DataTable instance if any
+            if ($.fn.DataTable.isDataTable('#consumptionTable')) {
+                $table.DataTable().clear().destroy();
             }
-            const tbody = $('#consumptionTable tbody').empty();
+
+            const $tbody = $table.find('tbody');
+            const $tfoot = $table.find('tfoot');
+
+            $tbody.empty();
+            $tfoot.empty();
+
             if (!data || data.length === 0) {
-                tbody.html('<tr><td colspan="5" class="text-center">No consumption data</td></tr>');
+                $tbody.html(
+                    '<tr><td colspan="5" class="text-center">No consumption data found for selected month</td></tr>'
+                );
                 return;
             }
-            data.forEach((item, i) => {
-                tbody.append(`<tr><td>${i+1}</td><td><strong>${item.roll_number}</strong></td>
-                <td>${item.student_name}</td>
-                <td><span class="badge bg-primary">${item.tokens_count}</span></td>
-                <td>₹${parseFloat(item.total_spent).toFixed(2)}</td></tr>`);
+
+            let totalSpent = 0;
+            let totalTokensCount = 0;
+
+            data.forEach(function(row, index) {
+                const spent = parseFloat(row.total_spent || 0);
+                const tokens = parseInt(row.tokens_count || 0, 10);
+
+                totalSpent += spent;
+                totalTokensCount += tokens;
+
+                $tbody.append(`
+            <tr>
+                <td>${index + 1}</td>
+                <td>${row.roll_number || 'N/A'}</td>
+                <td>${row.student_name || 'Unknown'}</td>
+                <td><span class="badge bg-primary">${tokens}</span></td>
+                <td>Rs.${spent.toFixed(2)}</td>
+            </tr>
+        `);
             });
-            tables.consumption = $('#consumptionTable').DataTable({
+
+            // TOTAL row in footer (stays at bottom, not sorted)
+            $tfoot.append(`
+        <tr class="table-info fw-bold text-center">
+            <td></td>
+            <td colspan="2">TOTAL</td>
+            <td>${totalTokensCount}</td>
+            <td>Rs.${totalSpent.toFixed(2)}</td>
+        </tr>
+    `);
+
+            // Initialize DataTable
+            tables.consumption = $table.DataTable({
                 paging: true,
-                pageLength: 10
+                searching: true,
+                ordering: true,
+                pageLength: 60,
+                order: [
+                    [4, 'desc']
+                ], // sort by Spent
+                columnDefs: [{
+                        className: "text-center",
+                        targets: "_all"
+                    },
+                    {
+                        orderable: false,
+                        targets: 0
+                    }
+                ]
             });
         }
+
+
 
         // Export functions
         function exportTokenRequests() {
@@ -1623,7 +1827,7 @@ if (!is_any_admin_role()) {
         }
 
         function exportRevenue() {
-            const month = $('#revenueMonth').val();
+            const month = $('#revenueFilterMonth').val();
             let url = '../mess/messexport.php?type=revenue';
             if (month) url += '&filter_month=' + encodeURIComponent(month);
 
@@ -1631,7 +1835,7 @@ if (!is_any_admin_role()) {
         }
 
         function exportConsumption() {
-            const month = $('#consumptionMonth').val();
+            const month = $('#consumptionFilterMonth').val();
             let url = '../mess/messexport.php?type=consumption';
             if (month) url += '&filter_month=' + encodeURIComponent(month);
 

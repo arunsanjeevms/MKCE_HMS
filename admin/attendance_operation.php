@@ -768,7 +768,6 @@ if (isset($_POST['action']) && $_POST['action'] === 'disable_time') {
                         <div class="d-flex justify-content-end mb-3">
                                 <label for="hostelFilterTime" class="form-label mb-0 me-2" style="font-weight:600">Hostel:</label>
                                 <select id="hostelFilterTime" class="form-select w-auto d-inline-block">
-                                    <option value="">All Hostels</option>
                                 </select>
                         </div>
                         <div id="activeTimeContainer" class="text-center mb-0">
@@ -1108,16 +1107,29 @@ if (isset($_POST['action']) && $_POST['action'] === 'disable_time') {
             method: 'POST',
             data: { action: 'attget_hostels' },
             dataType: 'json',
-                    success: function(res) {
+            success: function(res) {
                 if (res && res.success && Array.isArray(res.data)) {
-                    var opts = '<option value="">All Hostels</option>';
-                    res.data.forEach(function(h) {
+                    // Filter to only include Muthulakshmi, Veda, and Octa
+                    var wanted = ['muthulakshmi', 'veda', 'octa'];
+                    var filteredHostels = res.data.filter(function(h) {
+                        var lname = (h.hostel_name || '').toLowerCase().trim();
+                        return wanted.some(function(w) { return lname.indexOf(w) !== -1; });
+                    });
+
+                    // Build options without "All Hostels"
+                    var opts = '';
+                    filteredHostels.forEach(function(h) {
                         var id = h.hostel_id ?? '';
                         var name = h.hostel_name || '';
-                        // Use hostel_id as the option value and name as the label
                         opts += '<option value="' + escapeHtml(id) + '">' + escapeHtml(name) + '</option>';
                     });
-                    $('#hostelFilterBlocked, #hostelFilterLate, #hostelFilterTime').html(opts);
+                    
+                    // Only populate if we have hostels
+                    if (opts) {
+                        $('#hostelFilterTime').html(opts);
+                    } else {
+                        $('#hostelFilterTime').html('<option value="">No hostels available</option>');
+                    }
 
                     // Restore previously selected hostel from localStorage (if any)
                     var saved = null;
@@ -1125,11 +1137,14 @@ if (isset($_POST['action']) && $_POST['action'] === 'disable_time') {
                     if (saved !== null && saved !== undefined) {
                         // If saved value exists in options, select it
                         if ($('#hostelFilterTime option[value="' + saved + '"]').length > 0) {
-                            $('#hostelFilterBlocked, #hostelFilterLate, #hostelFilterTime').val(saved);
+                            $('#hostelFilterTime').val(saved);
                         } else {
-                            // saved not available (maybe hostels changed) -> clear
-                            $('#hostelFilterBlocked, #hostelFilterLate, #hostelFilterTime').val('');
+                            // saved not available (maybe hostels changed) -> select first available
+                            $('#hostelFilterTime').val($('#hostelFilterTime option:first').val());
                         }
+                    } else {
+                        // If no saved value, select first hostel by default
+                        $('#hostelFilterTime').val($('#hostelFilterTime option:first').val());
                     }
 
                     // After populating and restoring selection, load lists
