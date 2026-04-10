@@ -5126,6 +5126,7 @@ if (!empty($action)) {
 
             if (empty($errors)) {
                 if (!empty($leave_id)) {
+                    // Build UPDATE query dynamically
                     $sql_parts = ["UPDATE leave_applications SET From_Date=?, To_Date=?, Reason=?"];
                     $params = [$start_datetime, $end_datetime, $reason];
                     $types = "sss";
@@ -5138,22 +5139,37 @@ if (!empty($action)) {
 
                     $sql = implode(', ', $sql_parts);
                     $sql .= " WHERE Leave_ID=? AND Reg_No=? AND Status='Pending'";
+                    // Leave_ID is integer, Reg_No is string
                     $types .= "is";
                     $params[] = (int)$leave_id;
                     $params[] = $roll_no;
 
                     $stmt = $conn->prepare($sql);
-                    if ($stmt && $stmt->bind_param($types, ...$params) && $stmt->execute()) {
-                        if ($stmt->affected_rows > 0) {
-                            echo json_encode(['success' => true, 'message' => 'Leave application updated successfully!']);
-                        } else {
-                            $errors[] = "Failed to update leave application.";
-                        }
-                    } else {
-                        $errors[] = "Database error: " . ($stmt ? $stmt->error : $conn->error);
-                    }
                     if ($stmt) {
+                        // mysqli_stmt::bind_param requires arguments passed by reference.
+                        // Build an array of references for call_user_func_array.
+                        $bind_names = [];
+                        $bind_names[] = $types;
+                        for ($i = 0; $i < count($params); $i++) {
+                            // Create variable variables so we can pass by reference
+                            $bind_var_name = 'bind_' . $i;
+                            $$bind_var_name = $params[$i];
+                            $bind_names[] = &$$bind_var_name;
+                        }
+
+                        // Bind and execute
+                        if (call_user_func_array([$stmt, 'bind_param'], $bind_names) && $stmt->execute()) {
+                            if ($stmt->affected_rows > 0) {
+                                echo json_encode(['success' => true, 'message' => 'Leave application updated successfully!']);
+                            } else {
+                                $errors[] = "Failed to update leave application.";
+                            }
+                        } else {
+                            $errors[] = "Database error: " . ($stmt ? $stmt->error : $conn->error);
+                        }
                         $stmt->close();
+                    } else {
+                        $errors[] = "Database error: " . $conn->error;
                     }
                 } else {
                     if (empty($leave_type_id)) {
@@ -5161,7 +5177,8 @@ if (!empty($action)) {
                     } else {
                         $stmt = $conn->prepare("INSERT INTO leave_applications (Reg_No, LeaveType_ID, From_Date, To_Date, Reason, Proof, Status, Applied_Date) VALUES (?, ?, ?, ?, ?, ?, 'Pending', NOW())");
                         if ($stmt) {
-                            $stmt->bind_param("isssss", $roll_no, $leave_type_id, $start_datetime, $end_datetime, $reason, $proof_file);
+                            // Correct types: Reg_No (string), LeaveType_ID (integer), rest strings
+                            $stmt->bind_param("sissss", $roll_no, $leave_type_id, $start_datetime, $end_datetime, $reason, $proof_file);
                             if ($stmt->execute()) {
                                 echo json_encode(['success' => true, 'message' => 'Leave application submitted successfully!']);
                             } else {
