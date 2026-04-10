@@ -673,9 +673,18 @@ if (!isset($_SESSION['user_id']) || (!isset($_SESSION['role']) && !isset($_SESSI
                                 return `${year}-${month}-${day}`;
                             }
 
+                            function getSelectedLeaveTypeName() {
+                                const selected = $('#leave_type_id').find('option:selected');
+                                const fromDataAttr = selected.data('type-name');
+                                if (typeof fromDataAttr === 'string' && fromDataAttr.trim() !== '') {
+                                    return fromDataAttr.toLowerCase();
+                                }
+                                const fromText = selected.text();
+                                return (fromText || '').toLowerCase().trim();
+                            }
+
                             function isOutingSelected() {
-                                const leaveTypeSelect = $('#leave_type_id').find('option:selected');
-                                const leaveType = leaveTypeSelect.data('type-name') ? leaveTypeSelect.data('type-name').toLowerCase() : '';
+                                const leaveType = getSelectedLeaveTypeName();
                                 return leaveType.includes('outing');
                             }
 
@@ -733,8 +742,7 @@ if (!isset($_SESSION['user_id']) || (!isset($_SESSION['role']) && !isset($_SESSI
                             }
 
                             function applyEmergencyLeaveRestrictions() {
-                                const leaveTypeSelect = $('#leave_type_id').find('option:selected');
-                                const leaveType = leaveTypeSelect.data('type-name') ? leaveTypeSelect.data('type-name').toLowerCase() : '';
+                                const leaveType = getSelectedLeaveTypeName();
                                 const fromDateInput = $('#from_date');
                                 const toDateInput = $('#to_date');
                                 const generalInfo = $('#general_leave_info');
@@ -835,8 +843,7 @@ if (!isset($_SESSION['user_id']) || (!isset($_SESSION['role']) && !isset($_SESSI
                             
                             // Function to set the minimum date for date inputs based on leave type (Default logic)
                             function setDateRestrictions() {
-                                const leaveTypeSelect = $('#leave_type_id').find('option:selected');
-                                const leaveType = leaveTypeSelect.data('type-name') ? leaveTypeSelect.data('type-name').toLowerCase() : '';
+                                const leaveType = getSelectedLeaveTypeName();
                                 const fromDateInput = $('#from_date');
                                 const toDateInput = $('#to_date');
 
@@ -1072,8 +1079,7 @@ if (!isset($_SESSION['user_id']) || (!isset($_SESSION['role']) && !isset($_SESSI
                                 
                                 // General Leave front-end check for better UX
                                 const leaveId = $('#leave_id').val();
-                                const leaveTypeSelect = $('#leave_type_id').find('option:selected');
-                                const leaveType = leaveTypeSelect.data('type-name') ? leaveTypeSelect.data('type-name').toLowerCase() : '';
+                                const leaveType = getSelectedLeaveTypeName();
                                 
                                 if (!leaveId && leaveType.includes('general')) {
                                     const isGeneralLeaveEnabled = GENERAL_LEAVE_SETTING && GENERAL_LEAVE_SETTING.Is_Enabled == 1;
@@ -1152,7 +1158,7 @@ if (!isset($_SESSION['user_id']) || (!isset($_SESSION['role']) && !isset($_SESSI
                                         $('#to_date').addClass('is-invalid');
                                         return;
                                     }
-                                } else if (!leaveType.includes('general') && !leaveType.includes('outing')) {
+                                } else if (leaveType.includes('leave') && !leaveType.includes('general') && !leaveType.includes('outing') && !leaveType.includes('emergency')) {
                                     // Regular leave cannot be applied on the same day
                                     const todayStr = getTodayYmd();
                                     const selectedFromDate = $('#from_date').val();
