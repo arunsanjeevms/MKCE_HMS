@@ -2,6 +2,7 @@
 session_start();
 
 include '../db.php';
+include '../admin/admin_scope.php';
 
 
 $action = $_POST['action'] ?? '';
@@ -83,6 +84,12 @@ if ($user) {
         $_SESSION['username'] = $user['username'];
         
         $_SESSION['role'] = $user['role'];
+        $genderScope = get_hostel_gender_scope_for_role($user['role']);
+        if ($genderScope !== null) {
+            $_SESSION['hostel_gender_scope'] = $genderScope;
+        } else {
+            unset($_SESSION['hostel_gender_scope']);
+        }
 
         echo json_encode(["status" => 200,"role" => $user['role'], "message" => "Login successful"]);
     } else {

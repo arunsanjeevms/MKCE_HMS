@@ -1,5 +1,12 @@
 <?php
 session_start();
+include './admin_scope.php';
+
+if (!is_any_admin_role()) {
+    header('Location: ../login');
+    exit;
+}
+
 // Handle AJAX API requests first (before any HTML output)
 if (isset($_GET['api']) && $_GET['api'] === '1') {
     include '../db.php';
@@ -11,11 +18,17 @@ if (isset($_GET['api']) && $_GET['api'] === '1') {
         exit;
     }
 
+    $rawHostelId = $_GET['hostel_id'] ?? null;
+    $normalizedHostelId = normalize_hostel_id_for_current_admin($conn, $rawHostelId);
+    if (is_gender_admin_role() && $normalizedHostelId === null) {
+        $normalizedHostelId = get_default_hostel_id_for_current_admin($conn);
+    }
+
     // Pass the connection and other parameters properly
     $params = [
         'conn' => $conn,
         'action' => $_GET['action'] ?? '',
-        'hostel_id' => $_GET['hostel_id'] ?? null,
+        'hostel_id' => $normalizedHostelId,
         'date' => $_GET['date'] ?? date('Y-m-d')
     ];
 
@@ -100,9 +113,13 @@ function dispatchFunction($functionName, $params = []) {
                     LEFT JOIN rooms r ON r.hostel_id = h.hostel_id";
             
             $hostelId = $params['hostelId'] ?? null;
+            $genderScope = get_hostel_gender_scope_for_role();
             
             if ($hostelId) {
                 $sql .= " WHERE h.hostel_id = " . intval($hostelId);
+            } elseif ($genderScope !== null) {
+                $safeGender = mysqli_real_escape_string($conn, $genderScope);
+                $sql .= " WHERE h.gender = '" . $safeGender . "'";
             }
             
             $sql .= " GROUP BY h.hostel_id
@@ -467,8 +484,9 @@ function dispatchFunction($functionName, $params = []) {
             $conn = $params['conn'] ?? null;
             $action = $params['action'] ?? ($_GET['action'] ?? '');
             $hostelId = $params['hostel_id'] ?? ($_GET['hostel_id'] ?? null);
-            if ($hostelId !== null) {
-                $hostelId = intval($hostelId);
+            $hostelId = normalize_hostel_id_for_current_admin($conn, $hostelId);
+            if (is_gender_admin_role() && $hostelId === null) {
+                $hostelId = get_default_hostel_id_for_current_admin($conn);
             }
             $date = $params['date'] ?? ($_GET['date'] ?? date('Y-m-d'));
             
@@ -948,6 +966,12 @@ function dispatchFunction($functionName, $params = []) {
 
 // Get selected hostel from URL parameter or session
 $selectedHostelId = isset($_GET['hostel_id']) ? intval($_GET['hostel_id']) : null;
+if (isset($conn) && $conn) {
+    $selectedHostelId = normalize_hostel_id_for_current_admin($conn, $selectedHostelId);
+    if (is_gender_admin_role() && $selectedHostelId === null) {
+        $selectedHostelId = get_default_hostel_id_for_current_admin($conn);
+    }
+}
 
 // Get all dashboard data
 if (isset($conn) && $conn) {
@@ -1028,6 +1052,11 @@ if (isset($conn) && $conn) {
 
 // Extract all variables from the returned data
 extract($dashboardData);
+
+// Build hostel selector options based on current admin scope.
+$hostelSelectorOptions = dispatchFunction('getHostelStats', ['hostelId' => null]);
+$isScopedAdmin = is_gender_admin_role();
+$hasSingleScopedHostel = $isScopedAdmin && is_array($hostelSelectorOptions) && count($hostelSelectorOptions) <= 1;
 ?>
 
 <!DOCTYPE html>
@@ -2224,17 +2253,20 @@ extract($dashboardData);
                 <div class="row mb-4">
                     <div class="col-md-6 mb-3">
                         <div class="d-flex align-items-center">
-                            <label for="hostelSelector" class="form-label me-2 mb-0 text-gray-700">Hostel:</label>
+                            <label for="hostelSelector" class="form-label me-2 mb-0 text-gray-700"><?php echo $hasSingleScopedHostel ? 'Hostel (Auto):' : 'Hostel:'; ?></label>
                             <div class="hostel-selector-container">
                                 <select id="hostelSelector" onchange="changeHostel()"
-                                    class="hostel-selector form-select-sm border-primary" style="max-width: 200px;">
-                                    <option value="">All Hostels</option>
-                                    <option value="1" <?php echo ($selectedHostelId == 1) ? 'selected' : ''; ?>>
-                                        Muthulakshmi</option>
-                                    <option value="2" <?php echo ($selectedHostelId == 2) ? 'selected' : ''; ?>>Octa
-                                    </option>
-                                    <option value="3" <?php echo ($selectedHostelId == 3) ? 'selected' : ''; ?>>Veda
-                                    </option>
+                                    class="hostel-selector form-select-sm border-primary" style="max-width: 240px;" <?php echo $hasSingleScopedHostel ? 'disabled' : ''; ?>>
+                                    <?php if (!$isScopedAdmin): ?>
+                                        <option value="">All Hostels</option>
+                                    <?php endif; ?>
+                                    <?php if (!empty($hostelSelectorOptions) && is_array($hostelSelectorOptions)): ?>
+                                        <?php foreach ($hostelSelectorOptions as $hostelOption): ?>
+                                            <option value="<?php echo (int)$hostelOption['hostel_id']; ?>" <?php echo ((int)$selectedHostelId === (int)$hostelOption['hostel_id']) ? 'selected' : ''; ?>>
+                                                <?php echo htmlspecialchars($hostelOption['hostel_name']); ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    <?php endif; ?>
                                 </select>
                             </div>
                         </div>

@@ -2,6 +2,7 @@
 ob_start(); // Start output buffering to catch any stray output
 session_start();
 include 'db.php'; // your DB connection ($conn)
+include __DIR__ . '/admin/admin_scope.php';
 
 // Ensure only JSON is output
 error_reporting(E_ALL);
@@ -27,6 +28,19 @@ function path_to_url_student($filePath)
         return $baseUrl . '/' . ltrim($relative, '/');
     } else {
         return $baseUrl . '/Student/uploads/' . basename($p);
+    }
+}
+
+function get_current_admin_scope_gender()
+{
+    return get_hostel_gender_scope_for_role();
+}
+
+function require_any_admin_api_role()
+{
+    if (!is_any_admin_role()) {
+        echo json_encode(['success' => false, 'message' => 'Unauthorized']);
+        exit;
     }
 }
 
@@ -536,10 +550,16 @@ if (!empty($action)) {
         //Admin User registration
 
         case 'get_hostels':
+            $scopeGender = get_current_admin_scope_gender();
             if (isset($_POST['gender'])) {
 
+                $requestedGender = $_POST['gender'];
+                if ($scopeGender !== null && $requestedGender !== $scopeGender) {
+                    break;
+                }
+
                 $stmt = $conn->prepare("SELECT hostel_id, hostel_name FROM hostels WHERE gender = ? ORDER BY hostel_name");
-                $stmt->bind_param("s", $_POST['gender']);
+                $stmt->bind_param("s", $requestedGender);
                 $stmt->execute();
 
                 $result = $stmt->get_result();
@@ -553,11 +573,24 @@ if (!empty($action)) {
                 $stmt->close();
                 break;
             }
-            $sql = "SELECT hostel_id, hostel_name FROM hostels ORDER BY hostel_name";
-            $result = $conn->query($sql);
-            if ($result->num_rows > 0) {
-                while ($row = $result->fetch_assoc()) {
-                    echo '<option value="' . $row['hostel_id'] . '">' . $row['hostel_name'] . '</option>';
+            if ($scopeGender !== null) {
+                $stmt = $conn->prepare("SELECT hostel_id, hostel_name FROM hostels WHERE gender = ? ORDER BY hostel_name");
+                $stmt->bind_param("s", $scopeGender);
+                $stmt->execute();
+                $result = $stmt->get_result();
+                if ($result->num_rows > 0) {
+                    while ($row = $result->fetch_assoc()) {
+                        echo '<option value="' . $row['hostel_id'] . '">' . $row['hostel_name'] . '</option>';
+                    }
+                }
+                $stmt->close();
+            } else {
+                $sql = "SELECT hostel_id, hostel_name FROM hostels ORDER BY hostel_name";
+                $result = $conn->query($sql);
+                if ($result->num_rows > 0) {
+                    while ($row = $result->fetch_assoc()) {
+                        echo '<option value="' . $row['hostel_id'] . '">' . $row['hostel_name'] . '</option>';
+                    }
                 }
             }
             break;
@@ -576,6 +609,11 @@ if (!empty($action)) {
             $hostel_id = $_POST['hostel_id'] ?? '';
             $block = $_POST['block'] ?? '';
             $floor = $_POST['floor'] ?? '';
+
+            if (!is_hostel_id_allowed_for_current_admin($conn, (int)$hostel_id)) {
+                echo "<option value=''>Unauthorized hostel access</option>";
+                exit;
+            }
 
             if (empty($hostel_id) || empty($block) || empty($floor)) {
                 echo "<option value=''>Invalid parameters</option>";
@@ -1183,6 +1221,7 @@ if (!empty($action)) {
             break;
 
         case 'list_students':
+            $scopeGender = get_current_admin_scope_gender();
             $query = "
                 SELECT 
                     s.student_id,
@@ -1200,6 +1239,14 @@ if (!empty($action)) {
                 WHERE s.status = '1'
                 ORDER BY s.student_id ASC
             ";
+
+            if ($scopeGender !== null) {
+                $query = str_replace(
+                    "WHERE s.status = '1'",
+                    "WHERE s.status = '1' AND s.gender = '" . mysqli_real_escape_string($conn, $scopeGender) . "'",
+                    $query
+                );
+            }
 
 
             $result = $conn->query($query);
@@ -3181,6 +3228,7 @@ if (!empty($action)) {
             $ts = strtotime($selectedDate);
             $selectedDate = ($selectedDate && $ts) ? date('Y-m-d', $ts) : date('Y-m-d');
             $hostel_filter = trim($_POST['hostel_filter'] ?? $_GET['hostel_filter'] ?? '');
+            $scopeGender = get_current_admin_scope_gender();
 
             $sql = "
         SELECT s.roll_number, s.name, s.department, s.academic_batch, r.room_number, r.floor, a.marked_at, a.status
@@ -3198,7 +3246,11 @@ if (!empty($action)) {
         ";
             }
 
-            $sql .= " WHERE a.date = ? AND a.status = 'Present' AND NOT EXISTS (
+            $sql .= " WHERE a.date = ? AND a.status = 'Present'";
+            if ($scopeGender !== null) {
+                $sql .= " AND s.gender = '" . mysqli_real_escape_string($conn, $scopeGender) . "'";
+            }
+            $sql .= " AND NOT EXISTS (
             SELECT 1 FROM attendance a2 WHERE a2.student_id = a.student_id AND a2.date = a.date AND a2.status = 'On Leave'
         ) ORDER BY (FIELD(r.floor,'I','II','III','IV','V')=0), FIELD(r.floor,'I','II','III','IV','V'), r.room_number, s.roll_number";
 
@@ -3223,6 +3275,7 @@ if (!empty($action)) {
             $ts = strtotime($selectedDate);
             $selectedDate = ($selectedDate && $ts) ? date('Y-m-d', $ts) : date('Y-m-d');
             $hostel_filter = trim($_POST['hostel_filter'] ?? $_GET['hostel_filter'] ?? '');
+            $scopeGender = get_current_admin_scope_gender();
 
             $sql = "
          SELECT s.student_id, s.roll_number, s.name, s.department, s.academic_batch, 
@@ -3246,6 +3299,13 @@ if (!empty($action)) {
         LEFT JOIN attendance a ON s.student_id = a.student_id AND a.date = ?
         WHERE s.status = '1' 
         AND (a.status IS NULL OR a.status = 'Absent')
+    ";
+
+            if ($scopeGender !== null) {
+                $sql .= " AND s.gender = '" . mysqli_real_escape_string($conn, $scopeGender) . "'";
+            }
+
+            $sql .= "
         AND NOT EXISTS (
             SELECT 1 FROM leave_applications la WHERE la.Reg_No = s.roll_number AND ? BETWEEN DATE(la.From_Date) AND DATE(la.To_Date) AND la.Status = 'out'
         )
@@ -3273,6 +3333,7 @@ if (!empty($action)) {
             $ts = strtotime($selectedDate);
             $selectedDate = ($selectedDate && $ts) ? date('Y-m-d', $ts) : date('Y-m-d');
             $hostel_filter = trim($_POST['hostel_filter'] ?? $_GET['hostel_filter'] ?? '');
+            $scopeGender = get_current_admin_scope_gender();
 
             $sql = "
         SELECT s.roll_number, s.name, s.department, s.academic_batch, r.room_number, r.floor, a.marked_at, a.status
@@ -3290,7 +3351,11 @@ if (!empty($action)) {
         ";
             }
 
-            $sql .= " WHERE a.date = ? AND LOWER(TRIM(a.status)) LIKE '%late%' ORDER BY (FIELD(r.floor,'I','II','III','IV','V')=0), FIELD(r.floor,'I','II','III','IV','V'), r.room_number, s.roll_number";
+            $sql .= " WHERE a.date = ? AND LOWER(TRIM(a.status)) LIKE '%late%'";
+            if ($scopeGender !== null) {
+                $sql .= " AND s.gender = '" . mysqli_real_escape_string($conn, $scopeGender) . "'";
+            }
+            $sql .= " ORDER BY (FIELD(r.floor,'I','II','III','IV','V')=0), FIELD(r.floor,'I','II','III','IV','V'), r.room_number, s.roll_number";
 
             $stmt = $conn->prepare($sql);
             if (!empty($hostel_filter)) {
@@ -3313,6 +3378,7 @@ if (!empty($action)) {
             $ts = strtotime($selectedDate);
             $selectedDate = ($selectedDate && $ts) ? date('Y-m-d', $ts) : date('Y-m-d');
             $hostel_filter = trim($_POST['hostel_filter'] ?? $_GET['hostel_filter'] ?? '');
+            $scopeGender = get_current_admin_scope_gender();
 
             $sql = "
          SELECT s.roll_number, s.name, s.department, s.academic_batch, r.room_number, r.floor,
@@ -3337,7 +3403,11 @@ if (!empty($action)) {
         ";
             }
 
-            $sql .= " WHERE (a.status = 'On Leave' OR la.Leave_ID IS NOT NULL) ORDER BY (FIELD(r.floor,'I','II','III','IV','V')=0), FIELD(r.floor,'I','II','III','IV','V'), r.room_number, s.roll_number";
+            $sql .= " WHERE (a.status = 'On Leave' OR la.Leave_ID IS NOT NULL)";
+            if ($scopeGender !== null) {
+                $sql .= " AND s.gender = '" . mysqli_real_escape_string($conn, $scopeGender) . "'";
+            }
+            $sql .= " ORDER BY (FIELD(r.floor,'I','II','III','IV','V')=0), FIELD(r.floor,'I','II','III','IV','V'), r.room_number, s.roll_number";
 
             $stmt = $conn->prepare($sql);
             if (!empty($hostel_filter)) {
@@ -3360,6 +3430,7 @@ if (!empty($action)) {
             $ts = strtotime($selectedDate);
             $selectedDate = ($selectedDate && $ts) ? date('Y-m-d', $ts) : date('Y-m-d');
             $hostel_filter = trim($_POST['hostel_filter'] ?? $_GET['hostel_filter'] ?? '');
+            $scopeGender = get_current_admin_scope_gender();
 
             $sql = "
         SELECT s.roll_number, s.name, s.department, s.academic_batch, r.room_number, r.floor, a.marked_at, a.status, a.reason
@@ -3377,7 +3448,11 @@ if (!empty($action)) {
         ";
             }
 
-            $sql .= " WHERE a.date = ? AND (a.status = 'Present' OR LOWER(TRIM(a.status)) LIKE '%late%') AND NOT EXISTS (
+            $sql .= " WHERE a.date = ? AND (a.status = 'Present' OR LOWER(TRIM(a.status)) LIKE '%late%')";
+            if ($scopeGender !== null) {
+                $sql .= " AND s.gender = '" . mysqli_real_escape_string($conn, $scopeGender) . "'";
+            }
+            $sql .= " AND NOT EXISTS (
             SELECT 1 FROM attendance a2 WHERE a2.student_id = a.student_id AND a2.date = a.date AND a2.status = 'On Leave'
         ) ORDER BY (FIELD(r.floor,'I','II','III','IV','V')=0), FIELD(r.floor,'I','II','III','IV','V'), r.room_number, s.roll_number";
 
@@ -3402,6 +3477,7 @@ if (!empty($action)) {
             $ts = strtotime($selectedDate);
             $selectedDate = ($selectedDate && $ts) ? date('Y-m-d', $ts) : date('Y-m-d');
             $hostel_filter = trim($_POST['hostel_filter'] ?? $_GET['hostel_filter'] ?? '');
+            $scopeGender = get_current_admin_scope_gender();
 
             $sql = "
         SELECT s.roll_number, s.name, s.department, s.academic_batch, r.room_number, r.floor, a.marked_at, a.status
@@ -3420,7 +3496,11 @@ if (!empty($action)) {
         ";
             }
 
-            $sql .= " WHERE a.date = ? AND (a.status = 'Absent' OR a.status = 'On Leave') AND NOT (a.status = 'Absent' AND la.Leave_ID IS NOT NULL) ORDER BY (FIELD(r.floor,'I','II','III','IV','V')=0), FIELD(r.floor,'I','II','III','IV','V'), r.room_number, s.roll_number";
+            $sql .= " WHERE a.date = ? AND (a.status = 'Absent' OR a.status = 'On Leave')";
+            if ($scopeGender !== null) {
+                $sql .= " AND s.gender = '" . mysqli_real_escape_string($conn, $scopeGender) . "'";
+            }
+            $sql .= " AND NOT (a.status = 'Absent' AND la.Leave_ID IS NOT NULL) ORDER BY (FIELD(r.floor,'I','II','III','IV','V')=0), FIELD(r.floor,'I','II','III','IV','V'), r.room_number, s.roll_number";
 
             $stmt = $conn->prepare($sql);
             if (!empty($hostel_filter)) {
@@ -3440,11 +3520,13 @@ if (!empty($action)) {
 
         case 'block_all_absent':
             $today = date('Y-m-d');
+            $scopeGender = get_current_admin_scope_gender();
 
             $q = $conn->prepare(
                 "SELECT s.student_id
              FROM students s
              WHERE s.status = '1'
+               " . ($scopeGender !== null ? "AND s.gender = '" . mysqli_real_escape_string($conn, $scopeGender) . "'" : "") . "
                AND NOT EXISTS (
                    SELECT 1 FROM attendance a WHERE a.student_id = s.student_id AND a.date = ?
                )
@@ -3510,7 +3592,12 @@ if (!empty($action)) {
             break;
 
         case 'get_hostels_attendance':
-            $sql = "SELECT hostel_id, hostel_code, hostel_name FROM hostels ORDER BY hostel_name";
+            $scopeGender = get_current_admin_scope_gender();
+            $sql = "SELECT hostel_id, hostel_code, hostel_name FROM hostels";
+            if ($scopeGender !== null) {
+                $sql .= " WHERE gender = '" . mysqli_real_escape_string($conn, $scopeGender) . "'";
+            }
+            $sql .= " ORDER BY hostel_name";
             $res = $conn->query($sql);
             $out = [];
             while ($r = $res->fetch_assoc()) $out[] = $r;
@@ -3527,10 +3614,15 @@ if (!empty($action)) {
 
         case 'auto_mark_absent':
             $date = $_POST['selectedDate'] ?? $_GET['selectedDate'] ?? date('Y-m-d');
+            $scopeGender = get_current_admin_scope_gender();
             $student_sql = "
         SELECT s.student_id, s.roll_number
         FROM students s
-        WHERE s.status = '1'
+        WHERE s.status = '1'";
+            if ($scopeGender !== null) {
+                $student_sql .= " AND s.gender = '" . mysqli_real_escape_string($conn, $scopeGender) . "'";
+            }
+            $student_sql .= "
     ";
             $stmt = $conn->prepare($student_sql);
             $stmt->execute();
@@ -3602,6 +3694,7 @@ if (!empty($action)) {
             if (empty($reports)) $reports = ['present', 'late_entry', 'on_leave', 'absent', 'blocked'];
             $date = $_POST['selectedDate'] ?? $_GET['selectedDate'] ?? date('Y-m-d');
             $hostel_filter = trim($_POST['hostel_filter'] ?? $_GET['hostel_filter'] ?? '');
+            $scopeGender = get_current_admin_scope_gender();
             $response = [];
 
             foreach ($reports as $typeRaw) {
@@ -3623,7 +3716,11 @@ if (!empty($action)) {
                         JOIN hostels h ON r2.hostel_id = h.hostel_id AND h.hostel_name = ?
                     ";
                             }
-                            $sql .= " WHERE a.date = ? AND (a.status = 'Present' OR LOWER(TRIM(a.status)) LIKE '%late%') AND NOT EXISTS (
+                            $sql .= " WHERE a.date = ? AND (a.status = 'Present' OR LOWER(TRIM(a.status)) LIKE '%late%')";
+                            if ($scopeGender !== null) {
+                                $sql .= " AND s.gender = '" . mysqli_real_escape_string($conn, $scopeGender) . "'";
+                            }
+                            $sql .= " AND NOT EXISTS (
                     SELECT 1 FROM attendance a2 WHERE a2.student_id = a.student_id AND a2.date = a.date AND a2.status = 'On Leave'
                 ) ORDER BY (FIELD(r.floor,'I','II','III','IV','V')=0), FIELD(r.floor,'I','II','III','IV','V'), r.room_number, s.roll_number";
                             $stmt = $conn->prepare($sql);
@@ -3654,7 +3751,11 @@ if (!empty($action)) {
                             $sql .= "
                     LEFT JOIN attendance a ON s.student_id = a.student_id AND a.date = ?
                     WHERE s.status = '1' 
-                    AND (a.status IS NULL OR a.status = 'Absent')
+                            AND (a.status IS NULL OR a.status = 'Absent')";
+                                    if ($scopeGender !== null) {
+                                        $sql .= " AND s.gender = '" . mysqli_real_escape_string($conn, $scopeGender) . "'";
+                                    }
+                                    $sql .= "
                     AND NOT EXISTS (
                         SELECT 1 FROM leave_applications la WHERE la.Reg_No = s.roll_number AND ? BETWEEN DATE(la.From_Date) AND DATE(la.To_Date) AND la.Status = 'out'
                     )
@@ -3681,7 +3782,11 @@ if (!empty($action)) {
                         JOIN hostels h ON r2.hostel_id = h.hostel_id AND h.hostel_name = ?
                     ";
                             }
-                            $sql .= " WHERE a.date = ? AND LOWER(TRIM(a.status)) LIKE '%late%' ORDER BY (FIELD(r.floor,'I','II','III','IV','V')=0), FIELD(r.floor,'I','II','III','IV','V'), r.room_number, s.roll_number";
+                            $sql .= " WHERE a.date = ? AND LOWER(TRIM(a.status)) LIKE '%late%'";
+                            if ($scopeGender !== null) {
+                                $sql .= " AND s.gender = '" . mysqli_real_escape_string($conn, $scopeGender) . "'";
+                            }
+                            $sql .= " ORDER BY (FIELD(r.floor,'I','II','III','IV','V')=0), FIELD(r.floor,'I','II','III','IV','V'), r.room_number, s.roll_number";
                             $stmt = $conn->prepare($sql);
                             if (!empty($hostel_filter)) {
                                 $stmt->bind_param('ss', $hostel_filter, $date);
@@ -3704,7 +3809,11 @@ if (!empty($action)) {
                         JOIN hostels h ON r2.hostel_id = h.hostel_id AND h.hostel_name = ?
                     ";
                                 }
-                                $sql .= " WHERE (a.status = 'On Leave' OR la.Leave_ID IS NOT NULL) ORDER BY (FIELD(r.floor,'I','II','III','IV','V')=0), FIELD(r.floor,'I','II','III','IV','V'), r.room_number, s.roll_number";
+                                $sql .= " WHERE (a.status = 'On Leave' OR la.Leave_ID IS NOT NULL)";
+                                if ($scopeGender !== null) {
+                                    $sql .= " AND s.gender = '" . mysqli_real_escape_string($conn, $scopeGender) . "'";
+                                }
+                                $sql .= " ORDER BY (FIELD(r.floor,'I','II','III','IV','V')=0), FIELD(r.floor,'I','II','III','IV','V'), r.room_number, s.roll_number";
                                 $stmt = $conn->prepare($sql);
                                 if (!empty($hostel_filter)) {
                                     $stmt->bind_param('sss', $date, $date, $hostel_filter);
@@ -3730,7 +3839,11 @@ if (!empty($action)) {
                         JOIN hostels h ON r2.hostel_id = h.hostel_id AND h.hostel_name = ?
                     ";
                             }
-                            $sql .= " WHERE a.date = ? AND a.status = ? ORDER BY (FIELD(r.floor,'I','II','III','IV','V')=0), FIELD(r.floor,'I','II','III','IV','V'), r.room_number, s.roll_number";
+                            $sql .= " WHERE a.date = ? AND a.status = ?";
+                            if ($scopeGender !== null) {
+                                $sql .= " AND s.gender = '" . mysqli_real_escape_string($conn, $scopeGender) . "'";
+                            }
+                            $sql .= " ORDER BY (FIELD(r.floor,'I','II','III','IV','V')=0), FIELD(r.floor,'I','II','III','IV','V'), r.room_number, s.roll_number";
                             $stmt = $conn->prepare($sql);
                             if (!empty($hostel_filter)) {
                                 $stmt->bind_param('sss', $hostel_filter, $date, $dbStatus);
@@ -3754,6 +3867,9 @@ if (!empty($action)) {
                     LEFT JOIN rooms r ON rs.room_id = r.room_id
                     LEFT JOIN attendance a ON s.student_id = a.student_id AND a.date = ?
                     WHERE b.attendance_id IS NULL";
+                    if ($scopeGender !== null) {
+                        $sql .= " AND s.gender = '" . mysqli_real_escape_string($conn, $scopeGender) . "'";
+                    }
 
                     if (!empty($hostel_filter)) {
                         $sql .= " AND EXISTS (
@@ -4251,10 +4367,23 @@ if (!empty($action)) {
 
         case 'attget_hostels':
             $out = [];
-            $q = $conn->query("SELECT hostel_id, hostel_name FROM hostels ORDER BY hostel_name");
-            if ($q) {
-                while ($r = $q->fetch_assoc())
+            $scopeGender = get_current_admin_scope_gender();
+            if ($scopeGender !== null) {
+                $stmt = $conn->prepare("SELECT hostel_id, hostel_name FROM hostels WHERE gender = ? ORDER BY hostel_name");
+                $stmt->bind_param('s', $scopeGender);
+                $stmt->execute();
+                $q = $stmt->get_result();
+                while ($r = $q->fetch_assoc()) {
                     $out[] = $r;
+                }
+                $stmt->close();
+            } else {
+                $q = $conn->query("SELECT hostel_id, hostel_name FROM hostels ORDER BY hostel_name");
+                if ($q) {
+                    while ($r = $q->fetch_assoc()) {
+                        $out[] = $r;
+                    }
+                }
             }
             echo json_encode(['success' => true, 'data' => $out]);
             break;
@@ -4277,6 +4406,11 @@ if (!empty($action)) {
             $aadhaar_number = $_POST['aadhaar_number'] ?? '';
             $hostel_id = $_POST['faculty_hostel'] ?? null;
             $room_id = $_POST['faculty_room'] ?? null;
+
+            if (!empty($hostel_id) && !is_hostel_id_allowed_for_current_admin($conn, (int)$hostel_id)) {
+                echo json_encode(['status' => 'error', 'message' => 'Unauthorized hostel access.']);
+                exit;
+            }
 
             // Validate required fields
             if (empty($faculty_id) || empty($f_name) || empty($department) || empty($designation) || empty($gender)) {
@@ -4317,13 +4451,23 @@ if (!empty($action)) {
             exit;
 
         case 'list_faculty':
+                        $scopeGender = get_current_admin_scope_gender();
             // Query to get faculty data with room and hostel information
             $query = "SELECT hf.*, h.hostel_name, r.room_number 
               FROM hostel_faculty hf 
               LEFT JOIN hostels h ON hf.hostel_id = h.hostel_id 
               LEFT JOIN rooms r ON hf.room_id = r.room_id 
-              WHERE hf.status = '1' 
+                            WHERE hf.status = '1' 
               ORDER BY hf.f_name";
+
+            if ($scopeGender !== null) {
+                                $query = "SELECT hf.*, h.hostel_name, r.room_number 
+                            FROM hostel_faculty hf 
+                            LEFT JOIN hostels h ON hf.hostel_id = h.hostel_id 
+                            LEFT JOIN rooms r ON hf.room_id = r.room_id 
+                            WHERE hf.status = '1' AND h.gender = '" . mysqli_real_escape_string($conn, $scopeGender) . "'
+                            ORDER BY hf.f_name";
+            }
 
             $result = $conn->query($query);
 
@@ -4340,6 +4484,7 @@ if (!empty($action)) {
 
         case 'get_faculty':
             $faculty_id = $_POST['faculty_id'] ?? '';
+            $scopeGender = get_current_admin_scope_gender();
 
             if (empty($faculty_id)) {
                 echo json_encode(['success' => false, 'message' => 'Faculty ID is required.']);
@@ -4347,11 +4492,15 @@ if (!empty($action)) {
             }
 
             // Query to get specific faculty data with room and hostel information
-            $query = "SELECT hf.*, h.hostel_name, r.room_number 
+                        $query = "SELECT hf.*, h.hostel_name, r.room_number 
               FROM hostel_faculty hf 
               LEFT JOIN hostels h ON hf.hostel_id = h.hostel_id 
               LEFT JOIN rooms r ON hf.room_id = r.room_id 
               WHERE hf.f_id = ? AND hf.status = '1'";
+
+                        if ($scopeGender !== null) {
+                                $query .= " AND h.gender = '" . mysqli_real_escape_string($conn, $scopeGender) . "'";
+                        }
 
             $stmt = $conn->prepare($query);
             $stmt->bind_param('i', $faculty_id);
@@ -4413,6 +4562,11 @@ if (!empty($action)) {
             $hostel_id = $_POST['faculty_hostel'] ?? null;
             $room_id = $_POST['faculty_room'] ?? null;
 
+            if (!empty($hostel_id) && !is_hostel_id_allowed_for_current_admin($conn, (int)$hostel_id)) {
+                echo json_encode(['status' => 'error', 'message' => 'Unauthorized hostel access.']);
+                exit;
+            }
+
             // Validate required fields
             if (empty($f_id) || empty($f_name) || empty($department) || empty($designation) || empty($gender)) {
                 echo json_encode(['status' => 'error', 'message' => 'Please fill all required fields.']);
@@ -4446,6 +4600,11 @@ if (!empty($action)) {
             $hostel_id = $_POST['hostel_id'] ?? '';
             $block = $_POST['block'] ?? '';
             $floor = $_POST['floor'] ?? '';
+
+            if (!is_hostel_id_allowed_for_current_admin($conn, (int)$hostel_id)) {
+                echo "<option value=''>Unauthorized hostel access</option>";
+                exit;
+            }
 
             if (empty($hostel_id) || empty($block) || empty($floor)) {
                 echo "<option value=''>Invalid parameters</option>";
@@ -7018,8 +7177,13 @@ if (!empty($action)) {
                 $message = '';
                 $extra = [];
                 $httpStatus = 200;
+                $scopeGender = get_current_admin_scope_gender();
 
-                $stmt = $conn->prepare('SELECT hostel_id, hostel_name FROM hostels ORDER BY hostel_name');
+                if ($scopeGender !== null) {
+                    $stmt = $conn->prepare('SELECT hostel_id, hostel_name FROM hostels WHERE gender = ? ORDER BY hostel_name');
+                } else {
+                    $stmt = $conn->prepare('SELECT hostel_id, hostel_name FROM hostels ORDER BY hostel_name');
+                }
                 if (!$stmt) {
                     $success = false;
                     $message = 'Failed to prepare query';
@@ -7031,6 +7195,10 @@ if (!empty($action)) {
                         'message' => $message,
                     ], $extra), JSON_UNESCAPED_UNICODE);
                     exit;
+                }
+
+                if ($scopeGender !== null) {
+                    $stmt->bind_param('s', $scopeGender);
                 }
 
                 if (!$stmt->execute()) {
@@ -7411,12 +7579,14 @@ if (!empty($action)) {
         case 'get_admin_stay_hostel_requests':
             try {
                 $session_role = $_SESSION['role'] ?? ($_SESSION['user_type'] ?? '');
-                if ($session_role !== 'admin') {
+                if (!is_any_admin_role($session_role)) {
                     echo json_encode(['success' => false, 'message' => 'Unauthorized']);
                     break;
                 }
 
-                $stmt = $conn->prepare("
+                $scopeGender = get_current_admin_scope_gender();
+
+                $sql = "
                     SELECT
                         sr.request_id,
                         sr.student_id,
@@ -7431,11 +7601,23 @@ if (!empty($action)) {
                         sr.requested_at
                     FROM stay_in_hostel_requests sr
                     INNER JOIN students s ON s.student_id = sr.student_id
-                    ORDER BY sr.requested_at DESC
-                ");
+                    LEFT JOIN rooms r ON s.room_id = r.room_id
+                    LEFT JOIN hostels h ON r.hostel_id = h.hostel_id";
+
+                if ($scopeGender !== null) {
+                    $sql .= " WHERE h.gender = ?";
+                }
+
+                $sql .= " ORDER BY sr.requested_at DESC";
+
+                $stmt = $conn->prepare($sql);
                 if (!$stmt) {
                     echo json_encode(['success' => false, 'message' => 'Database error: ' . $conn->error]);
                     break;
+                }
+
+                if ($scopeGender !== null) {
+                    $stmt->bind_param('s', $scopeGender);
                 }
 
                 $stmt->execute();
@@ -7456,10 +7638,12 @@ if (!empty($action)) {
         case 'get_stay_hostel_counts':
             try {
                 $session_role = $_SESSION['role'] ?? ($_SESSION['user_type'] ?? '');
-                if ($session_role !== 'admin') {
+                if (!is_any_admin_role($session_role)) {
                     echo json_encode(['success' => false, 'message' => 'Unauthorized']);
                     break;
                 }
+
+                $scopeGender = get_current_admin_scope_gender();
 
                 $sql = "
                     SELECT
@@ -7467,6 +7651,19 @@ if (!empty($action)) {
                         SUM(CASE WHEN DATE(requested_at) = CURDATE() THEN 1 ELSE 0 END) AS today
                     FROM stay_in_hostel_requests
                 ";
+                if ($scopeGender !== null) {
+                    $safeGender = mysqli_real_escape_string($conn, $scopeGender);
+                    $sql = "
+                    SELECT
+                        COUNT(*) AS total,
+                        SUM(CASE WHEN DATE(sr.requested_at) = CURDATE() THEN 1 ELSE 0 END) AS today
+                    FROM stay_in_hostel_requests sr
+                    INNER JOIN students s ON s.student_id = sr.student_id
+                    LEFT JOIN rooms r ON s.room_id = r.room_id
+                    LEFT JOIN hostels h ON r.hostel_id = h.hostel_id
+                    WHERE h.gender = '" . $safeGender . "'
+                ";
+                }
                 $res = $conn->query($sql);
                 if (!$res) {
                     echo json_encode(['success' => false, 'message' => 'Database error: ' . $conn->error]);
@@ -7488,10 +7685,12 @@ if (!empty($action)) {
         case 'admin_update_stay_hostel_request':
             try {
                 $session_role = $_SESSION['role'] ?? ($_SESSION['user_type'] ?? '');
-                if ($session_role !== 'admin') {
+                if (!is_any_admin_role($session_role)) {
                     echo json_encode(['success' => false, 'message' => 'Unauthorized']);
                     break;
                 }
+
+                $scopeGender = get_current_admin_scope_gender();
 
                 $request_id = (int)($_POST['request_id'] ?? 0);
                 $from_date = trim($_POST['from_date'] ?? '');
@@ -7506,6 +7705,20 @@ if (!empty($action)) {
                 if (strtotime($from_date) > strtotime($to_date)) {
                     echo json_encode(['success' => false, 'message' => 'From date cannot be greater than To date']);
                     break;
+                }
+
+                if ($scopeGender !== null) {
+                    $checkSql = "SELECT sr.request_id FROM stay_in_hostel_requests sr INNER JOIN students s ON s.student_id = sr.student_id LEFT JOIN rooms r ON s.room_id = r.room_id LEFT JOIN hostels h ON r.hostel_id = h.hostel_id WHERE sr.request_id = ? AND h.gender = ? LIMIT 1";
+                    $checkStmt = $conn->prepare($checkSql);
+                    $checkStmt->bind_param('is', $request_id, $scopeGender);
+                    $checkStmt->execute();
+                    $checkRes = $checkStmt->get_result();
+                    $allowed = $checkRes && $checkRes->num_rows > 0;
+                    $checkStmt->close();
+                    if (!$allowed) {
+                        echo json_encode(['success' => false, 'message' => 'Unauthorized']);
+                        break;
+                    }
                 }
 
                 $stmt = $conn->prepare("UPDATE stay_in_hostel_requests SET from_date = ?, to_date = ?, reason = ? WHERE request_id = ?");
@@ -7564,7 +7777,7 @@ if (!empty($action)) {
                         break;
                     }
                     $stmt_find->bind_param("ii", $request_id, $student_id);
-                } elseif ($role === 'admin') {
+                } elseif (is_any_admin_role($role)) {
                     $stmt_find = $conn->prepare("SELECT proof_path FROM stay_in_hostel_requests WHERE request_id = ? LIMIT 1");
                     if (!$stmt_find) {
                         echo json_encode(['success' => false, 'message' => 'Database error: ' . $conn->error]);
@@ -7584,6 +7797,21 @@ if (!empty($action)) {
                 if (!$row_find) {
                     echo json_encode(['success' => false, 'message' => 'Request not found']);
                     break;
+                }
+
+                if (is_gender_admin_role($role)) {
+                    $scopeGender = get_current_admin_scope_gender();
+                    $checkSql = "SELECT sr.request_id FROM stay_in_hostel_requests sr INNER JOIN students s ON s.student_id = sr.student_id LEFT JOIN rooms r ON s.room_id = r.room_id LEFT JOIN hostels h ON r.hostel_id = h.hostel_id WHERE sr.request_id = ? AND h.gender = ? LIMIT 1";
+                    $checkStmt = $conn->prepare($checkSql);
+                    $checkStmt->bind_param('is', $request_id, $scopeGender);
+                    $checkStmt->execute();
+                    $checkRes = $checkStmt->get_result();
+                    $allowed = $checkRes && $checkRes->num_rows > 0;
+                    $checkStmt->close();
+                    if (!$allowed) {
+                        echo json_encode(['success' => false, 'message' => 'Unauthorized']);
+                        break;
+                    }
                 }
 
                 $proof_path = $row_find['proof_path'] ?? null;

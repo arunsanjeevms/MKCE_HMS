@@ -1,6 +1,14 @@
 <?php 
 session_start();
 include '../db.php';
+include './admin_scope.php';
+
+if (!is_any_admin_role()) {
+    header('Location: ../login');
+    exit;
+}
+
+$scopeGender = get_hostel_gender_scope_for_role();
 date_default_timezone_set('Asia/Kolkata');
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
@@ -367,27 +375,15 @@ ini_set('display_errors', 1);
     </div>
 
     <div class="container-fluid">
-        <!-- Tabs -->
-        <ul class="nav nav-tabs mb-3" id="hostelTabs" role="tablist">
-            <li class="nav-item" role="presentation">
-                <button class="nav-link active tab-purple" id="tab-muthu" data-bs-toggle="tab" data-hostel="Dr.Muthulakshmi" data-bs-target="#muthu" type="button" role="tab"><span>Dr.Muthulakshmi Hostel</span></button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link tab-yellow" id="tab-octa" data-bs-toggle="tab" data-hostel="Octa" data-bs-target="#octa" type="button" role="tab"><span>Octa Hostel</span></button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link tab-red" id="tab-veda" data-bs-toggle="tab" data-hostel="Veda" data-bs-target="#veda" type="button" role="tab"><span>Veda Hostel</span></button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link tab-orange" id="tab-vacated" data-bs-toggle="tab" data-bs-target="#vacated" type="button" role="tab"><span>Vacated Students</span></button>
-            </li>
-        </ul>
-
         <div class="tab-content">
             <?php
             // Fetch hostels to make sure names exist
             $hostels_map = [];
-            $hres = $conn->query("SELECT hostel_id, hostel_name FROM hostels");
+            $hostelSql = "SELECT hostel_id, hostel_name, gender FROM hostels";
+            if ($scopeGender !== null) {
+                $hostelSql .= " WHERE gender = '" . $conn->real_escape_string($scopeGender) . "'";
+            }
+            $hres = $conn->query($hostelSql);
             if ($hres) {
                 while ($h = $hres->fetch_assoc()) $hostels_map[$h['hostel_name']] = $h['hostel_id'];
             }
@@ -399,6 +395,27 @@ ini_set('display_errors', 1);
                 ['key'=>'Octa','id'=>'octa','class'=>'tab-yellow','filter'=>'gender=Male'],
                 ['key'=>'Veda','id'=>'veda','class'=>'tab-red','filter'=>'gender=Male']
             ];
+            $tabs = array_values(array_filter($tabs, function($t) use ($scopeGender) {
+                if ($scopeGender === null) return true;
+                if ($scopeGender === 'Female') return $t['key'] === 'Muthulakshmi';
+                if ($scopeGender === 'Male') return in_array($t['key'], ['Octa', 'Veda'], true);
+                return true;
+            }));
+            ?>
+
+            <!-- Tabs -->
+            <ul class="nav nav-tabs mb-3" id="hostelTabs" role="tablist">
+                <?php foreach ($tabs as $idx => $tb): ?>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link <?= $idx === 0 ? 'active' : '' ?> <?= htmlspecialchars($tb['class']) ?>" id="tab-<?= htmlspecialchars($tb['id']) ?>" data-bs-toggle="tab" data-hostel="<?= htmlspecialchars($tb['key']) ?>" data-bs-target="#<?= htmlspecialchars($tb['id']) ?>" type="button" role="tab"><span><?= htmlspecialchars($tb['key']) ?> Hostel</span></button>
+                    </li>
+                <?php endforeach; ?>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link tab-orange" id="tab-vacated" data-bs-toggle="tab" data-bs-target="#vacated" type="button" role="tab"><span>Vacated Students</span></button>
+                </li>
+            </ul>
+
+            <?php
             foreach ($tabs as $t):
                 $hostelName = $t['key'];
                 $tabId = $t['id'];
@@ -407,7 +424,7 @@ ini_set('display_errors', 1);
                 // Debug: Log each hostel
                 error_log("Hostel: $hostelName, ID: $hostelId");
             ?>
-            <div class="tab-pane fade <?= $tabId === 'muthu' ? 'show active' : '' ?>" id="<?= $tabId ?>" role="tabpanel">
+            <div class="tab-pane fade <?= $tabId === ($tabs[0]['id'] ?? '') ? 'show active' : '' ?>" id="<?= $tabId ?>" role="tabpanel">
                 <div class="card mb-4">
                     <div class="card-header">
                         <div>
@@ -696,9 +713,13 @@ ini_set('display_errors', 1);
                                         <label for="filter_hostel_vacated">Hostel</label>
                                         <select id="filter_hostel_vacated" class="form-select filter-hostel" data-tab="vacated">
                                             <option value="">All Hostels</option>
-                                            <option value="Dr.Muthulakshmi">Dr.Muthulakshmi</option>
-                                            <option value="Octa">Octa</option>
-                                            <option value="Veda">Veda</option>
+                                            <?php if ($scopeGender === null || $scopeGender === 'Female'): ?>
+                                                <option value="Dr.Muthulakshmi">Dr.Muthulakshmi</option>
+                                            <?php endif; ?>
+                                            <?php if ($scopeGender === null || $scopeGender === 'Male'): ?>
+                                                <option value="Octa">Octa</option>
+                                                <option value="Veda">Veda</option>
+                                            <?php endif; ?>
                                         </select>
                                     </div>
                                 </div>
@@ -707,8 +728,12 @@ ini_set('display_errors', 1);
                                         <label for="filter_gender_vacated">Gender</label>
                                         <select id="filter_gender_vacated" class="form-select filter-gender" data-tab="vacated">
                                             <option value="">All Genders</option>
-                                            <option value="Male">Male</option>
-                                            <option value="Female">Female</option>
+                                            <?php if ($scopeGender === null || $scopeGender === 'Male'): ?>
+                                                <option value="Male">Male</option>
+                                            <?php endif; ?>
+                                            <?php if ($scopeGender === null || $scopeGender === 'Female'): ?>
+                                                <option value="Female">Female</option>
+                                            <?php endif; ?>
                                         </select>
                                     </div>
                                 </div>

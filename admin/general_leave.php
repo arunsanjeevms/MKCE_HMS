@@ -1,4 +1,11 @@
-<?php session_start(); ?>
+<?php
+session_start();
+include './admin_scope.php';
+if (!is_any_admin_role()) {
+    header('Location: ../login');
+    exit;
+}
+?>
 <!DOCTYPE html>
 <html lang="en">
 

@@ -1,4 +1,11 @@
-<?php session_start(); ?>
+<?php session_start();
+include './admin_scope.php';
+if (!is_any_admin_role()) {
+    header('Location: ../login');
+    exit;
+}
+$scopeGender = get_hostel_gender_scope_for_role();
+?>
 <!DOCTYPE html>
 <html lang="en">
 
@@ -748,7 +755,11 @@
         $hostel_result = null;
         if (isset($conn)) {
             // Query the database to get the unique hostel names
-            $hostel_query = "SELECT DISTINCT hostel_name FROM hostels WHERE hostel_name IS NOT NULL AND hostel_name != '' ORDER BY hostel_name ASC";
+            $hostel_query = "SELECT DISTINCT hostel_name FROM hostels WHERE hostel_name IS NOT NULL AND hostel_name != ''";
+            if ($scopeGender !== null) {
+                $hostel_query .= " AND gender = '" . $conn->real_escape_string($scopeGender) . "'";
+            }
+            $hostel_query .= " ORDER BY hostel_name ASC";
             $hostel_result = $conn->query($hostel_query);
         }
         // END: DYNAMIC HOSTEL LOADING LOGIC

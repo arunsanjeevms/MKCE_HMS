@@ -1,6 +1,12 @@
 <?php
 session_start();
 include '../db.php';
+include './admin_scope.php';
+
+if (!is_any_admin_role()) {
+    header('Location: ../login');
+    exit;
+}
 
 
 if (isset($_POST['enableAttendance'])) {

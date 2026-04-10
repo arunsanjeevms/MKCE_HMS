@@ -1,10 +1,21 @@
 <?php
+session_start();
 // Enable error reporting for debugging
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
 // Include database connection
 include '../db.php';
+include './admin_scope.php';
+
+if (!is_any_admin_role()) {
+    http_response_code(403);
+    header('Content-Type: application/json');
+    echo json_encode(['success' => false, 'message' => 'Unauthorized']);
+    exit;
+}
+
+$scopeGender = get_hostel_gender_scope_for_role();
 
 // Test database connection
 if ($conn->connect_error) {
@@ -115,7 +126,12 @@ function get_department_variations(mysqli $conn, string $selectedDepartment): ar
 {
     // Get all distinct departments from the database
     $departments = [];
-    $result = $conn->query("SELECT DISTINCT department FROM students WHERE department IS NOT NULL AND department <> ''");
+    global $scopeGender;
+    $sql = "SELECT DISTINCT department FROM students WHERE department IS NOT NULL AND department <> ''";
+    if ($scopeGender !== null) {
+        $sql .= " AND gender = '" . $conn->real_escape_string($scopeGender) . "'";
+    }
+    $result = $conn->query($sql);
     if ($result) {
         while ($row = $result->fetch_assoc()) {
             $departments[] = $row['department'];
@@ -137,6 +153,7 @@ function get_department_variations(mysqli $conn, string $selectedDepartment): ar
 
 function fetch_report_data(mysqli $conn, array $filters = []): array
 {
+    global $scopeGender;
     // Debug: Check what database we're connected to in this function
     $database_result = $conn->query("SELECT DATABASE() as db_name");
     if ($database_result) {
@@ -153,6 +170,19 @@ function fetch_report_data(mysqli $conn, array $filters = []): array
 
     $department = trim($filters['department'] ?? '');
     $hostel = trim($filters['hostel'] ?? '');
+    if ($scopeGender !== null && $hostel !== '') {
+        $checkStmt = $conn->prepare("SELECT hostel_id FROM hostels WHERE hostel_name = ? AND gender = ? LIMIT 1");
+        if ($checkStmt) {
+            $checkStmt->bind_param('ss', $hostel, $scopeGender);
+            $checkStmt->execute();
+            $checkRes = $checkStmt->get_result();
+            $isAllowedHostel = $checkRes && $checkRes->num_rows > 0;
+            $checkStmt->close();
+            if (!$isAllowedHostel) {
+                return [];
+            }
+        }
+    }
     $block = trim($filters['block'] ?? '');
     $floor = trim($filters['floor'] ?? '');
     $roomType = trim($filters['room_type'] ?? '');
@@ -214,6 +244,11 @@ function fetch_report_data(mysqli $conn, array $filters = []): array
 
         // Add basic status filter
         $whereClauses[] = "s.status = '1'";
+        if ($scopeGender !== null) {
+            $whereClauses[] = "s.gender = ?";
+            $types .= 's';
+            $params[] = $scopeGender;
+        }
 
         // Add filters for vacated students
         if ($department !== '') {
@@ -322,6 +357,11 @@ function fetch_report_data(mysqli $conn, array $filters = []): array
         $whereClauses = ["s.status = '1'"];
         $types = 's';
         $params = [$reportDate];
+        if ($scopeGender !== null) {
+            $whereClauses[] = "s.gender = ?";
+            $types .= 's';
+            $params[] = $scopeGender;
+        }
 
         if ($department !== '') {
             // Get all department variations that map to the same short name

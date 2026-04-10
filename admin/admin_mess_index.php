@@ -1,11 +1,11 @@
-<?php session_start(); ?>
-<!-- <?php
-        // if (!isset($_SESSION['user_id']) || ($_SESSION['role'] ?? $_SESSION['user_type'] ?? 'admin') !== 'admin') {
-        //     // This part is crucial for production. For local testing, ensure your API sets a mock session ID.
-        //     header("Location: ../login");
-        //     exit;
-        // }
-        ?> -->
+<?php
+session_start();
+include './admin_scope.php';
+if (!is_any_admin_role()) {
+    header('Location: ../login');
+    exit;
+}
+?>
 <!DOCTYPE html>
 <html lang="en">
 

@@ -202,6 +202,12 @@
         if (($_SESSION['role'] == 'admin')) {
             echo "Admin";
         }
+        if (($_SESSION['role'] == 'male_admin')) {
+            echo "Male Admin";
+        }
+        if (($_SESSION['role'] == 'female_admin')) {
+            echo "Female Admin";
+        }
         
         if (($_SESSION['role'] == 'faculty')) {
             echo "Faculty";

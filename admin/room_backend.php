@@ -1,4 +1,13 @@
 <?php
+session_start();
+include './admin_scope.php';
+
+if (!is_any_admin_role()) {
+    header('Content-Type: application/json');
+    echo json_encode(['success' => false, 'message' => 'Unauthorized']);
+    exit;
+}
+
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
@@ -34,11 +43,17 @@ switch (true) {
         $floor = $_GET['floor'] ?? '';
         $roomType = $_GET['room_type'] ?? '';
         $userType = $_GET['user_type'] ?? '';
+        $scopeGender = get_hostel_gender_scope_for_role();
         
         $hostelId = null;
         if (!empty($hostelName)) {
-            $stmt = $conn->prepare("SELECT hostel_id FROM hostels WHERE hostel_name=?");
-            $stmt->bind_param('s', $hostelName);
+            if ($scopeGender !== null) {
+                $stmt = $conn->prepare("SELECT hostel_id FROM hostels WHERE hostel_name=? AND gender=?");
+                $stmt->bind_param('ss', $hostelName, $scopeGender);
+            } else {
+                $stmt = $conn->prepare("SELECT hostel_id FROM hostels WHERE hostel_name=?");
+                $stmt->bind_param('s', $hostelName);
+            }
             $stmt->execute();
             $res = $stmt->get_result();
             if ($res && mysqli_num_rows($res) > 0) {
@@ -79,6 +94,12 @@ switch (true) {
             $whereConditions[] = "h.hostel_id = ?";
             $params[] = $hostelId;
             $types .= 'i';
+        }
+
+        if ($scopeGender !== null) {
+            $whereConditions[] = "h.gender = ?";
+            $params[] = $scopeGender;
+            $types .= 's';
         }
         
         if (!empty($department)) {
@@ -307,11 +328,17 @@ $pdf->Cell(180, 5, '(An Autonomous Institution Affiliated to Anna University, Ch
         $floor = $_GET['floor'] ?? '';
         $roomType = $_GET['room_type'] ?? '';
         $userType = $_GET['user_type'] ?? '';
+        $scopeGender = get_hostel_gender_scope_for_role();
         
         $hostelId = null;
         if (!empty($hostelName)) {
-            $stmt = $conn->prepare("SELECT hostel_id FROM hostels WHERE hostel_name=?");
-            $stmt->bind_param('s', $hostelName);
+            if ($scopeGender !== null) {
+                $stmt = $conn->prepare("SELECT hostel_id FROM hostels WHERE hostel_name=? AND gender=?");
+                $stmt->bind_param('ss', $hostelName, $scopeGender);
+            } else {
+                $stmt = $conn->prepare("SELECT hostel_id FROM hostels WHERE hostel_name=?");
+                $stmt->bind_param('s', $hostelName);
+            }
             $stmt->execute();
             $res = $stmt->get_result();
             if ($res && mysqli_num_rows($res) > 0) {
@@ -344,6 +371,12 @@ $pdf->Cell(180, 5, '(An Autonomous Institution Affiliated to Anna University, Ch
             $whereConditions[] = "h.hostel_id = ?";
             $params[] = $hostelId;
             $types .= 'i';
+        }
+
+        if ($scopeGender !== null) {
+            $whereConditions[] = "h.gender = ?";
+            $params[] = $scopeGender;
+            $types .= 's';
         }
         
         if (!empty($department)) {

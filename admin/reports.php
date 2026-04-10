@@ -1,4 +1,12 @@
-<?php session_start(); ?><?php
+<?php
+session_start();
+include './admin_scope.php';
+if (!is_any_admin_role()) {
+    header('Location: ../login');
+    exit;
+}
+?>
+<?php
 // Enable error reporting for debugging
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
@@ -20,6 +28,8 @@ if ($database_result) {
 }
 
 date_default_timezone_set('Asia/Kolkata');
+
+$scopeGender = get_hostel_gender_scope_for_role();
 
 function shorten_department_name(string $department): string
 {
@@ -106,7 +116,7 @@ function fetchDistinctValues(mysqli $conn, string $query, string $column): array
 
 $rawDepartments = fetchDistinctValues(
     $conn,
-    "SELECT DISTINCT department FROM students WHERE department IS NOT NULL AND department <> '' ORDER BY department ASC",
+    "SELECT DISTINCT department FROM students WHERE department IS NOT NULL AND department <> ''" . ($scopeGender !== null ? " AND gender = '" . $conn->real_escape_string($scopeGender) . "'" : "") . " ORDER BY department ASC",
     'department'
 );
 

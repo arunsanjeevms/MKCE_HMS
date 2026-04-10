@@ -190,7 +190,7 @@
 
     <div class="menu">
         <?php
-        if ($_SESSION["role"] == 'admin') {
+        if (in_array($_SESSION["role"], ['admin', 'male_admin', 'female_admin'], true)) {
             echo '<a href="index.php" class="menu-item">
 <i class="fa-solid fa-grip" style="color: #63E6BE;"></i>
         <span>Dashboard</span>

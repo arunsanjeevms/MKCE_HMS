@@ -1,8 +1,9 @@
 <?php
 session_start();
+include './admin_scope.php';
 
 $session_role = $_SESSION['role'] ?? ($_SESSION['user_type'] ?? '');
-if ($session_role !== 'admin') {
+if (!is_any_admin_role($session_role)) {
     header("Location: ../login");
     exit;
 }
@@ -14,6 +15,7 @@ $action = strtolower($_GET['action'] ?? '');
 if ($action === 'stay_pdf') {
     function fetch_stay_requests(mysqli $conn): array
     {
+        $genderScope = get_hostel_gender_scope_for_role();
         $sql = "
             SELECT
                 s.roll_number,
@@ -27,12 +29,20 @@ if ($action === 'stay_pdf') {
                 sr.requested_at
             FROM stay_in_hostel_requests sr
             INNER JOIN students s ON s.student_id = sr.student_id
+            LEFT JOIN rooms r ON s.room_id = r.room_id
+            LEFT JOIN hostels h ON r.hostel_id = h.hostel_id
         ";
 
         $q = trim((string)($_GET['q'] ?? ''));
+        $where = [];
+
+        if ($genderScope !== null) {
+            $where[] = "h.gender = '" . $conn->real_escape_string($genderScope) . "'";
+        }
+
         if ($q !== '') {
             $qEsc = $conn->real_escape_string($q);
-            $sql .= " WHERE (
+            $where[] = "(
                         s.roll_number LIKE '%$qEsc%' OR
                         s.name LIKE '%$qEsc%' OR
                         s.department LIKE '%$qEsc%' OR
@@ -40,6 +50,10 @@ if ($action === 'stay_pdf') {
                         sr.from_date LIKE '%$qEsc%' OR
                         sr.to_date LIKE '%$qEsc%'
                     )";
+        }
+
+        if (!empty($where)) {
+            $sql .= " WHERE " . implode(' AND ', $where);
         }
 
         $sql .= " ORDER BY sr.requested_at DESC";
