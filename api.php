@@ -70,6 +70,18 @@ function get_mess_scope_gender(): ?string
     return null;
 }
 
+function get_general_leave_enabled_by_for_current_admin(): string
+{
+    $role = $_SESSION['role'] ?? ($_SESSION['user_type'] ?? '');
+    if ($role === 'male_admin') {
+        return 'male_admin';
+    }
+    if ($role === 'female_admin') {
+        return 'female_admin';
+    }
+    return 'admin';
+}
+
 header('Content-Type: application/json');
 
 // Accept both form data and JSON body payloads
@@ -204,6 +216,9 @@ if (!empty($action)) {
         // General Leave Enable/Disable Actions
 
         case 'enableGeneralLeave':
+            require_any_admin_api_role();
+            $leaveEnabledBy = get_general_leave_enabled_by_for_current_admin();
+            $isSuperGeneralLeave = ($leaveEnabledBy === 'admin');
             $leave_name = $_POST['leave_name'] ?? '';
             $from_date = $_POST['from_date'] ?? '';
             $to_date = $_POST['to_date'] ?? '';
@@ -222,7 +237,9 @@ if (!empty($action)) {
             }
 
             // Check if there's already an active general leave
-            $check_sql = "SELECT * FROM general_Leave WHERE Is_Enabled = ?";
+            $check_sql = $isSuperGeneralLeave
+                ? "SELECT * FROM general_Leave WHERE Is_Enabled = ? AND (Enabled_By = 'admin' OR Enabled_By = '' OR Enabled_By IS NULL)"
+                : "SELECT * FROM general_Leave WHERE Is_Enabled = ? AND Enabled_By = ?";
             $check_stmt = mysqli_prepare($conn, $check_sql);
             if (!$check_stmt) {
                 echo json_encode(['success' => false, 'message' => 'Database error: Failed to prepare statement.']);
@@ -230,7 +247,11 @@ if (!empty($action)) {
             }
 
             $active_status = 1;
-            mysqli_stmt_bind_param($check_stmt, "i", $active_status);
+            if ($isSuperGeneralLeave) {
+                mysqli_stmt_bind_param($check_stmt, "i", $active_status);
+            } else {
+                mysqli_stmt_bind_param($check_stmt, "is", $active_status, $leaveEnabledBy);
+            }
             mysqli_stmt_execute($check_stmt);
             $check_result = mysqli_stmt_get_result($check_stmt);
 
@@ -242,12 +263,12 @@ if (!empty($action)) {
             mysqli_stmt_close($check_stmt);
 
             // Insert new general leave
-            $insert_sql = "INSERT INTO general_Leave (Leave_Name, From_Date, To_Date, Instructions, Is_Enabled, Created_Date) 
-                                       VALUES (?, ?, ?, ?, 1, NOW())";
+            $insert_sql = "INSERT INTO general_Leave (Leave_Name, From_Date, To_Date, Enabled_By, Instructions, Is_Enabled, Created_Date) 
+                                       VALUES (?, ?, ?, ?, ?, 1, NOW())";
             $insert_stmt = mysqli_prepare($conn, $insert_sql);
 
             if ($insert_stmt) {
-                mysqli_stmt_bind_param($insert_stmt, "ssss", $leave_name, $from_date, $to_date, $instructions);
+                mysqli_stmt_bind_param($insert_stmt, "sssss", $leave_name, $from_date, $to_date, $leaveEnabledBy, $instructions);
                 if (mysqli_stmt_execute($insert_stmt)) {
                     echo json_encode(['success' => true, 'message' => 'General Leave has been enabled successfully.']);
                 } else {
@@ -264,6 +285,9 @@ if (!empty($action)) {
             break;
 
         case 'disableGeneralLeave':
+            require_any_admin_api_role();
+            $leaveEnabledBy = get_general_leave_enabled_by_for_current_admin();
+            $isSuperGeneralLeave = ($leaveEnabledBy === 'admin');
             $leave_id = $_POST['leave_id'] ?? '';
 
             if (empty($leave_id)) {
@@ -272,11 +296,17 @@ if (!empty($action)) {
             }
 
             // Update the general leave status to 0 (disabled)
-            $update_sql = "UPDATE general_Leave SET Is_Enabled = 0 WHERE GeneralLeave_ID = ? AND Is_Enabled = 1";
+            $update_sql = $isSuperGeneralLeave
+                ? "UPDATE general_Leave SET Is_Enabled = 0 WHERE GeneralLeave_ID = ? AND Is_Enabled = 1"
+                : "UPDATE general_Leave SET Is_Enabled = 0 WHERE GeneralLeave_ID = ? AND Is_Enabled = 1 AND Enabled_By = ?";
             $update_stmt = mysqli_prepare($conn, $update_sql);
 
             if ($update_stmt) {
-                mysqli_stmt_bind_param($update_stmt, "i", $leave_id);
+                if ($isSuperGeneralLeave) {
+                    mysqli_stmt_bind_param($update_stmt, "i", $leave_id);
+                } else {
+                    mysqli_stmt_bind_param($update_stmt, "is", $leave_id, $leaveEnabledBy);
+                }
                 if (mysqli_stmt_execute($update_stmt)) {
                     if (mysqli_stmt_affected_rows($update_stmt) > 0) {
                         echo json_encode(['success' => true, 'message' => 'General Leave has been disabled successfully.']);
@@ -298,6 +328,9 @@ if (!empty($action)) {
 
 
         case 'updateGeneralLeave':
+            require_any_admin_api_role();
+            $leaveEnabledBy = get_general_leave_enabled_by_for_current_admin();
+            $isSuperGeneralLeave = ($leaveEnabledBy === 'admin');
             $leave_id = $_POST['leave_id'] ?? '';
             $leave_name = $_POST['leave_name'] ?? '';
             $from_date = $_POST['from_date'] ?? '';
@@ -319,11 +352,15 @@ if (!empty($action)) {
             // Update general leave
             $update_sql = "UPDATE general_Leave 
                                        SET Leave_Name = ?, From_Date = ?, To_Date = ?, Instructions = ? 
-                                       WHERE GeneralLeave_ID = ? AND Is_Enabled = 1";
+                                       WHERE GeneralLeave_ID = ? AND Is_Enabled = 1 " . ($isSuperGeneralLeave ? "" : "AND Enabled_By = ?");
             $update_stmt = mysqli_prepare($conn, $update_sql);
 
             if ($update_stmt) {
-                mysqli_stmt_bind_param($update_stmt, "ssssi", $leave_name, $from_date, $to_date, $instructions, $leave_id);
+                if ($isSuperGeneralLeave) {
+                    mysqli_stmt_bind_param($update_stmt, "ssssi", $leave_name, $from_date, $to_date, $instructions, $leave_id);
+                } else {
+                    mysqli_stmt_bind_param($update_stmt, "ssssis", $leave_name, $from_date, $to_date, $instructions, $leave_id, $leaveEnabledBy);
+                }
                 if (mysqli_stmt_execute($update_stmt)) {
                     if (mysqli_stmt_affected_rows($update_stmt) > 0) {
                         echo json_encode(['success' => true, 'message' => 'General Leave has been updated successfully.']);
@@ -345,6 +382,9 @@ if (!empty($action)) {
 
 
         case 'deleteGeneralLeave':
+            require_any_admin_api_role();
+            $leaveEnabledBy = get_general_leave_enabled_by_for_current_admin();
+            $isSuperGeneralLeave = ($leaveEnabledBy === 'admin');
             $leave_id = $_POST['leave_id'] ?? '';
 
             if (empty($leave_id)) {
@@ -353,11 +393,17 @@ if (!empty($action)) {
             }
 
             // Update the general leave status to 0 (disabled)
-            $update_sql = "DELETE FROM general_Leave WHERE GeneralLeave_ID = ? AND Is_Enabled = 1";
+            $update_sql = $isSuperGeneralLeave
+                ? "DELETE FROM general_Leave WHERE GeneralLeave_ID = ? AND Is_Enabled = 1"
+                : "DELETE FROM general_Leave WHERE GeneralLeave_ID = ? AND Is_Enabled = 1 AND Enabled_By = ?";
             $update_stmt = mysqli_prepare($conn, $update_sql);
 
             if ($update_stmt) {
-                mysqli_stmt_bind_param($update_stmt, "i", $leave_id);
+                if ($isSuperGeneralLeave) {
+                    mysqli_stmt_bind_param($update_stmt, "i", $leave_id);
+                } else {
+                    mysqli_stmt_bind_param($update_stmt, "is", $leave_id, $leaveEnabledBy);
+                }
                 if (mysqli_stmt_execute($update_stmt)) {
                     if (mysqli_stmt_affected_rows($update_stmt) > 0) {
                         echo json_encode(['success' => true, 'message' => 'General Leave has been deleted successfully.']);
@@ -380,13 +426,22 @@ if (!empty($action)) {
 
 
         case 'get_active':
+            require_any_admin_api_role();
+            $leaveEnabledBy = get_general_leave_enabled_by_for_current_admin();
+            $isSuperGeneralLeave = ($leaveEnabledBy === 'admin');
             // Get currently active general leave
-            $sql = "SELECT * FROM general_Leave WHERE Is_Enabled = ? ORDER BY GeneralLeave_ID DESC LIMIT 1";
+            $sql = $isSuperGeneralLeave
+                ? "SELECT * FROM general_Leave WHERE Is_Enabled = ? AND (Enabled_By = 'admin' OR Enabled_By = '' OR Enabled_By IS NULL) ORDER BY GeneralLeave_ID DESC LIMIT 1"
+                : "SELECT * FROM general_Leave WHERE Is_Enabled = ? AND Enabled_By = ? ORDER BY GeneralLeave_ID DESC LIMIT 1";
             $stmt = mysqli_prepare($conn, $sql);
 
             if ($stmt) {
                 $active_status = 1;
-                mysqli_stmt_bind_param($stmt, "i", $active_status);
+                if ($isSuperGeneralLeave) {
+                    mysqli_stmt_bind_param($stmt, "i", $active_status);
+                } else {
+                    mysqli_stmt_bind_param($stmt, "is", $active_status, $leaveEnabledBy);
+                }
                 mysqli_stmt_execute($stmt);
                 $result = mysqli_stmt_get_result($stmt);
 
@@ -5417,9 +5472,15 @@ if (!empty($action)) {
                 break;
             }
 
-            // Fetch general leave setting
+            // Fetch general leave setting with gender scope fallback to common(admin)
             $general_leave_setting = ['Is_Enabled' => 0];
-            $stmt_gl = $conn->prepare("SELECT GeneralLeave_ID, From_Date, To_Date, Is_Enabled FROM general_leave WHERE Is_Enabled = 1 LIMIT 1");
+            if ($student_gender === 'male') {
+                $stmt_gl = $conn->prepare("SELECT GeneralLeave_ID, From_Date, To_Date, Is_Enabled, Enabled_By FROM general_leave WHERE Is_Enabled = 1 AND (Enabled_By = 'male_admin' OR Enabled_By = 'admin' OR Enabled_By = '' OR Enabled_By IS NULL) ORDER BY CASE WHEN Enabled_By = 'male_admin' THEN 0 WHEN Enabled_By = 'admin' THEN 1 ELSE 2 END, GeneralLeave_ID DESC LIMIT 1");
+            } elseif ($student_gender === 'female') {
+                $stmt_gl = $conn->prepare("SELECT GeneralLeave_ID, From_Date, To_Date, Is_Enabled, Enabled_By FROM general_leave WHERE Is_Enabled = 1 AND (Enabled_By = 'female_admin' OR Enabled_By = 'admin' OR Enabled_By = '' OR Enabled_By IS NULL) ORDER BY CASE WHEN Enabled_By = 'female_admin' THEN 0 WHEN Enabled_By = 'admin' THEN 1 ELSE 2 END, GeneralLeave_ID DESC LIMIT 1");
+            } else {
+                $stmt_gl = $conn->prepare("SELECT GeneralLeave_ID, From_Date, To_Date, Is_Enabled, Enabled_By FROM general_leave WHERE Is_Enabled = 1 AND (Enabled_By = 'admin' OR Enabled_By = '' OR Enabled_By IS NULL) ORDER BY GeneralLeave_ID DESC LIMIT 1");
+            }
             if ($stmt_gl) {
                 $stmt_gl->execute();
                 $result_gl = $stmt_gl->get_result();
@@ -5738,9 +5799,15 @@ if (!empty($action)) {
                 break;
             }
 
-            // Fetch general leave setting
+            // Fetch general leave setting with gender scope fallback to common(admin)
             $general_leave_setting = ['Is_Enabled' => 0];
-            $stmt_gl = $conn->prepare("SELECT GeneralLeave_ID, From_Date, To_Date, Is_Enabled FROM general_leave WHERE Is_Enabled = 1 LIMIT 1");
+            if ($student_gender === 'male') {
+                $stmt_gl = $conn->prepare("SELECT GeneralLeave_ID, From_Date, To_Date, Is_Enabled, Enabled_By FROM general_leave WHERE Is_Enabled = 1 AND (Enabled_By = 'male_admin' OR Enabled_By = 'admin' OR Enabled_By = '' OR Enabled_By IS NULL) ORDER BY CASE WHEN Enabled_By = 'male_admin' THEN 0 WHEN Enabled_By = 'admin' THEN 1 ELSE 2 END, GeneralLeave_ID DESC LIMIT 1");
+            } elseif ($student_gender === 'female') {
+                $stmt_gl = $conn->prepare("SELECT GeneralLeave_ID, From_Date, To_Date, Is_Enabled, Enabled_By FROM general_leave WHERE Is_Enabled = 1 AND (Enabled_By = 'female_admin' OR Enabled_By = 'admin' OR Enabled_By = '' OR Enabled_By IS NULL) ORDER BY CASE WHEN Enabled_By = 'female_admin' THEN 0 WHEN Enabled_By = 'admin' THEN 1 ELSE 2 END, GeneralLeave_ID DESC LIMIT 1");
+            } else {
+                $stmt_gl = $conn->prepare("SELECT GeneralLeave_ID, From_Date, To_Date, Is_Enabled, Enabled_By FROM general_leave WHERE Is_Enabled = 1 AND (Enabled_By = 'admin' OR Enabled_By = '' OR Enabled_By IS NULL) ORDER BY GeneralLeave_ID DESC LIMIT 1");
+            }
             if ($stmt_gl) {
                 if ($stmt_gl->execute()) {
                     $result_gl = $stmt_gl->get_result();
@@ -5816,12 +5883,48 @@ if (!empty($action)) {
             break;
 
         case 'get_leave_types':
+            $student_gender = '';
+            if (isset($_SESSION['user_id']) && isset($_SESSION['role']) && $_SESSION['role'] === 'student') {
+                $user_id = (int)$_SESSION['user_id'];
+                $stmt_g = $conn->prepare("SELECT LOWER(TRIM(s.gender)) AS gender FROM students s WHERE s.user_id = ? LIMIT 1");
+                if ($stmt_g) {
+                    $stmt_g->bind_param('i', $user_id);
+                    $stmt_g->execute();
+                    $res_g = $stmt_g->get_result();
+                    $row_g = $res_g ? $res_g->fetch_assoc() : null;
+                    $student_gender = $row_g['gender'] ?? '';
+                    $stmt_g->close();
+                }
+            }
+
+            $generalEnabled = false;
+            if ($student_gender === 'male') {
+                $stmt_gl = $conn->prepare("SELECT GeneralLeave_ID FROM general_leave WHERE Is_Enabled = 1 AND (Enabled_By = 'male_admin' OR Enabled_By = 'admin' OR Enabled_By = '' OR Enabled_By IS NULL) LIMIT 1");
+            } elseif ($student_gender === 'female') {
+                $stmt_gl = $conn->prepare("SELECT GeneralLeave_ID FROM general_leave WHERE Is_Enabled = 1 AND (Enabled_By = 'female_admin' OR Enabled_By = 'admin' OR Enabled_By = '' OR Enabled_By IS NULL) LIMIT 1");
+            } else {
+                $stmt_gl = $conn->prepare("SELECT GeneralLeave_ID FROM general_leave WHERE Is_Enabled = 1 AND (Enabled_By = 'admin' OR Enabled_By = '' OR Enabled_By IS NULL) LIMIT 1");
+            }
+            if ($stmt_gl) {
+                $stmt_gl->execute();
+                $res_gl = $stmt_gl->get_result();
+                $generalEnabled = $res_gl && $res_gl->num_rows > 0;
+                $stmt_gl->close();
+            }
+
             $leave_types = [];
-            $stmt_lt = $conn->prepare("SELECT LeaveType_ID, Leave_Type_Name FROM leave_types ORDER BY Priority ASC, Leave_Type_Name ASC");
+            if ($student_gender === 'female') {
+                $stmt_lt = $conn->prepare("SELECT LeaveType_ID, Leave_Type_Name FROM leave_types WHERE LOWER(Leave_Type_Name) NOT LIKE '%outing%' ORDER BY Priority ASC, Leave_Type_Name ASC");
+            } else {
+                $stmt_lt = $conn->prepare("SELECT LeaveType_ID, Leave_Type_Name FROM leave_types ORDER BY Priority ASC, Leave_Type_Name ASC");
+            }
             if ($stmt_lt) {
                 $stmt_lt->execute();
                 $lt_res = $stmt_lt->get_result();
                 while ($lt = $lt_res->fetch_assoc()) {
+                    if (stripos($lt['Leave_Type_Name'], 'general') !== false && !$generalEnabled) {
+                        continue;
+                    }
                     $leave_types[] = $lt;
                 }
                 $stmt_lt->close();

@@ -12,6 +12,18 @@ if (!is_any_admin_role()) {
 <head>
 
     <?php include '../db.php'; ?>
+    <?php
+    $sessionRole = get_current_session_role();
+    $isSuperAdminGeneralLeave = is_super_admin_role($sessionRole);
+    if ($isSuperAdminGeneralLeave) {
+        $activeGeneralLeaveScopeSql = "1=1";
+        $historyGeneralLeaveScopeSql = "1=1";
+    } else {
+        $roleScopeSql = "Enabled_By = '" . $conn->real_escape_string($sessionRole) . "'";
+        $activeGeneralLeaveScopeSql = $roleScopeSql;
+        $historyGeneralLeaveScopeSql = $roleScopeSql;
+    }
+    ?>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Hostel Management</title>
@@ -409,23 +421,43 @@ if (!is_any_admin_role()) {
                                     $disableExpiredSql = "UPDATE general_Leave 
                                                          SET Is_Enabled = 0 
                                                          WHERE Is_Enabled = 1 
-                                                         AND To_Date < NOW()";
+                                                         AND To_Date < NOW()
+                                                         AND " . $activeGeneralLeaveScopeSql;
                                     $disableResult = mysqli_query($conn, $disableExpiredSql);
                                     
                                    
                                     // check enabled leave
-                                    $sql = "SELECT * FROM general_Leave WHERE Is_Enabled = 1 ORDER BY GeneralLeave_ID DESC LIMIT 1";
+                                    $sql = "SELECT * FROM general_Leave WHERE Is_Enabled = 1 AND " . $activeGeneralLeaveScopeSql . " ORDER BY GeneralLeave_ID DESC";
                                     $result = mysqli_query($conn, $sql);
-                                    $activeLeave = mysqli_fetch_assoc($result);
+                                    $activeLeaves = [];
+                                    if ($result) {
+                                        while ($row = mysqli_fetch_assoc($result)) {
+                                            $activeLeaves[] = $row;
+                                        }
+                                    }
                                     ?>
 
                                     <div class="text-center">
-                                        <?php if ($activeLeave): ?>
+                                        <?php if (!empty($activeLeaves)): ?>
 
-                                        <!-- Show current active general leave info and disable button -->
-                                        <div class="alert alert-success mb-3" role="alert">
-                                            <h5 class="alert-heading"><i class="fas fa-calendar-check me-2"></i>Active
-                                                General Leave</h5>
+                                        <?php foreach ($activeLeaves as $activeLeave): ?>
+                                        <?php
+                                            $enabledBy = strtolower(trim($activeLeave['Enabled_By'] ?? ''));
+                                            $scopeLabel = 'Common Scope';
+                                            $scopeClass = 'bg-primary';
+                                            if ($enabledBy === 'male_admin') {
+                                                $scopeLabel = 'Boys Scope';
+                                                $scopeClass = 'bg-info';
+                                            } elseif ($enabledBy === 'female_admin') {
+                                                $scopeLabel = 'Girls Scope';
+                                                $scopeClass = 'bg-danger';
+                                            }
+                                        ?>
+                                        <div class="alert alert-success mb-3 text-start" role="alert">
+                                            <h5 class="alert-heading d-flex justify-content-between align-items-center">
+                                                <span><i class="fas fa-calendar-check me-2"></i>Active General Leave</span>
+                                                <span class="badge <?php echo $scopeClass; ?>"><?php echo $scopeLabel; ?></span>
+                                            </h5>
                                             <p class="mb-2"><strong>Leave Name:</strong>
                                                 <?php echo htmlspecialchars($activeLeave['Leave_Name']); ?></p>
                                             <p class="mb-2"><strong>From:</strong>
@@ -435,32 +467,26 @@ if (!is_any_admin_role()) {
                                                 <?php echo date('d-m-Y h:i A', strtotime($activeLeave['To_Date'])); ?>
                                             </p>
                                             <?php if (!empty($activeLeave['Instructions'])): ?>
-                                            <p class="mb-0"><strong>Instructions:</strong>
+                                            <p class="mb-2"><strong>Instructions:</strong>
                                                 <?php echo htmlspecialchars($activeLeave['Instructions']); ?></p>
                                             <?php endif; ?>
                                             <hr>
-                                            <p class="mb-0 text-muted">Students can currently apply for leave during
-                                                this period.</p>
+                                            <div class="d-flex gap-2 flex-wrap">
+                                                <button type="button" class="btn btn-warning editLeaveBtn"
+                                                    data-leave-id="<?php echo $activeLeave['GeneralLeave_ID']; ?>"
+                                                    data-leave-name="<?php echo htmlspecialchars($activeLeave['Leave_Name']); ?>"
+                                                    data-from-date="<?php echo date('Y-m-d\TH:i', strtotime($activeLeave['From_Date'])); ?>"
+                                                    data-to-date="<?php echo date('Y-m-d\TH:i', strtotime($activeLeave['To_Date'])); ?>"
+                                                    data-instructions="<?php echo htmlspecialchars($activeLeave['Instructions']); ?>">
+                                                    <i class="fas fa-edit me-1"></i> Edit Leave
+                                                </button>
+                                                <button type="button" class="btn btn-danger disableLeaveBtn"
+                                                    data-leave-id="<?php echo $activeLeave['GeneralLeave_ID']; ?>">
+                                                    <i class="fas fa-times-circle me-1"></i> Cancel Leave
+                                                </button>
+                                            </div>
                                         </div>
-
-                                        <!-- <button style="margin-right: 15px;" type="button" class="btn btn-warning" id="disableLeaveBtn"
-                                            data-leave-id="<?php echo $activeLeave['GeneralLeave_ID']; ?>">
-                                            <i class="fas fa-times-circle me-1"></i> Disable Leave
-                                        </button> -->
-                                      
-                                        <button style="margin-right: 15px;" type="button" class="btn btn-warning" id="editLeaveBtn"
-                                            data-leave-id="<?php echo $activeLeave['GeneralLeave_ID']; ?>"
-                                            data-leave-name="<?php echo htmlspecialchars($activeLeave['Leave_Name']); ?>"
-                                            data-from-date="<?php echo date('Y-m-d\TH:i', strtotime($activeLeave['From_Date'])); ?>"
-                                            data-to-date="<?php echo date('Y-m-d\TH:i', strtotime($activeLeave['To_Date'])); ?>"
-                                            data-instructions="<?php echo htmlspecialchars($activeLeave['Instructions']); ?>">
-                                            <i class="fas fa-edit me-1"></i> Edit Leave
-                                        </button>
-
-                                        <button type="button" class="btn btn-danger" id="deleteLeaveBtn"
-                                            data-leave-id="<?php echo $activeLeave['GeneralLeave_ID']; ?>">
-                                            <i class="fa-solid fa-trash"></i>  Delete Leave
-                                        </button>
+                                        <?php endforeach; ?>
                                         <?php else: ?>
 
                                         <!--General Leave activated ah illana-->
@@ -508,7 +534,7 @@ if (!is_any_admin_role()) {
                                     </thead>
                                     <tbody>
                                         <?php
-                                        $sql="SELECT * FROM general_Leave WHERE Is_Enabled = 0 ORDER BY GeneralLeave_ID DESC";
+                                        $sql="SELECT * FROM general_Leave WHERE Is_Enabled = 0 AND " . $historyGeneralLeaveScopeSql . " ORDER BY GeneralLeave_ID DESC";
                                         $result = mysqli_query($conn, $sql);
                                         $sno=1;
                                         while($row=mysqli_fetch_assoc($result)){
@@ -864,7 +890,7 @@ if (!is_any_admin_role()) {
     };
 
     // Handle Disable Leave Button (if alrdy enabled)
-    $(document).on('click', '#disableLeaveBtn', function() {
+    $(document).on('click', '.disableLeaveBtn', function() {
         const leaveId = $(this).data('leave-id');
 
         Swal.fire({
@@ -922,7 +948,7 @@ if (!is_any_admin_role()) {
 
 
     // Handle Edit Leave Button
-    $(document).on('click', '#editLeaveBtn', function() {
+    $(document).on('click', '.editLeaveBtn', function() {
         const leaveId = $(this).data('leave-id');
         const leaveName = $(this).data('leave-name');
         const fromDate = $(this).data('from-date');
