@@ -14,14 +14,59 @@ if (isset($_POST['enableAttendance'])) {
     $to_time = $_POST['to_time'];
     $late_entry_time = $_POST['late_entry_time'];
     $enabled_by = 'Admin';
+    $hostel_id = isset($_POST['hostel_id']) && ctype_digit($_POST['hostel_id']) ? (int)$_POST['hostel_id'] : null;
 
-    $conn->query("UPDATE attendance_time_control SET status='disabled'");
+    // Ensure the attendance_time_control table has a hostel_id column. If not, try to add it.
+    $colRes = $conn->query("SHOW COLUMNS FROM attendance_time_control LIKE 'hostel_id'");
+    if ($colRes && $colRes->num_rows == 0) {
+        // Best effort: add column (nullable) to support per-hostel timing. Requires DB privileges.
+        $conn->query("ALTER TABLE attendance_time_control ADD COLUMN hostel_id INT(11) DEFAULT NULL");
+    }
 
-    $stmt = $conn->prepare("INSERT INTO attendance_time_control (from_time, to_time, late_entry_time, enabled_by, status) VALUES (?, ?, ?, ?, 'enabled')");
-    $stmt->bind_param("ssss", $from_time, $to_time, $late_entry_time, $enabled_by);
+    // Disable only existing enabled rows for this hostel (if specified and column exists) otherwise disable global records
+    if ($hostel_id !== null) {
+        // check if hostel_id column exists (ALTER may have been attempted above)
+        $colResDisable = $conn->query("SHOW COLUMNS FROM attendance_time_control LIKE 'hostel_id'");
+        $hasHostelColDisable = ($colResDisable && $colResDisable->num_rows > 0);
+        if ($hasHostelColDisable) {
+            $stmt_disable = $conn->prepare("UPDATE attendance_time_control SET status='disabled' WHERE hostel_id = ?");
+            if ($stmt_disable) {
+                $stmt_disable->bind_param('i', $hostel_id);
+                $stmt_disable->execute();
+                $stmt_disable->close();
+            } else {
+                // Fallback: disable all if prepare fails
+                $conn->query("UPDATE attendance_time_control SET status='disabled'");
+            }
+        } else {
+            // Column not present -> fallback to disabling all
+            $conn->query("UPDATE attendance_time_control SET status='disabled'");
+        }
+    } else {
+        $conn->query("UPDATE attendance_time_control SET status='disabled'");
+    }
+
+    // Insert a new attendance time control record.
+    $colRes = $conn->query("SHOW COLUMNS FROM attendance_time_control LIKE 'hostel_id'");
+    $hasHostelCol = ($colRes && $colRes->num_rows > 0);
+    if ($hasHostelCol && $hostel_id !== null) {
+        // Insert with hostel_id when provided
+        $stmt = $conn->prepare("INSERT INTO attendance_time_control (hostel_id, from_time, to_time, late_entry_time, enabled_by, status) VALUES (?, ?, ?, ?, ?, 'enabled')");
+        if ($stmt) {
+            $stmt->bind_param("issss", $hostel_id, $from_time, $to_time, $late_entry_time, $enabled_by);
+        }
+    } else {
+        // Insert without hostel_id (global record)
+        $stmt = $conn->prepare("INSERT INTO attendance_time_control (from_time, to_time, late_entry_time, enabled_by, status) VALUES (?, ?, ?, ?, 'enabled')");
+        if ($stmt) {
+            $stmt->bind_param("ssss", $from_time, $to_time, $late_entry_time, $enabled_by);
+        }
+    }
 
     if ($stmt->execute()) {
+        $storedHostel = ($hostel_id !== null) ? $hostel_id : '';
         echo "<script>
+            try { localStorage.setItem('hostelFilterTime', '" . $storedHostel . "'); } catch(e) {}
             Swal.fire({
                 title: 'Success!',
                 text: 'Attendance Time Enabled Successfully!',
@@ -149,11 +194,12 @@ if (isset($_POST['action']) && $_POST['action'] === 'disable_time') {
         }
 
         .breadcrumb-area {
-            background: white;
+            background: #ffffff; /* white to match page panel */
             border-radius: 10px;
-            box-shadow: var(--card-shadow);
-            margin: 20px;
-            padding: 15px 20px;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.04);
+            margin: 18px 20px 6px 20px;
+            padding: 12px 18px;
+            border: 1px solid rgba(0,0,0,0.03);
         }
 
         .breadcrumb-item a {
@@ -259,6 +305,14 @@ if (isset($_POST['action']) && $_POST['action'] === 'disable_time') {
         .container-fluid {
             padding: 20px;
         }
+        /* Page panel that wraps all tabs/content (keeps breadcrumb outside) */
+        .page-panel {
+            background: #ffffff; /* white background */
+            border-radius: 12px;
+            padding: 18px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.06);
+            margin: 10px 20px 30px 20px; /* give breathing room from breadcrumb */
+        }
 
         .loader-container {
             position: fixed;
@@ -335,11 +389,12 @@ if (isset($_POST['action']) && $_POST['action'] === 'disable_time') {
         }
 
         .breadcrumb-area {
-            background-image: linear-gradient(to top, #fff1eb 0%, #ace0f9 100%);
+            background: #ffffff; /* white to match page panel */
             border-radius: 10px;
-            box-shadow: var(--card-shadow);
-            margin: 20px;
-            padding: 15px 20px;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.04);
+            margin: 18px 20px 6px 20px;
+            padding: 12px 18px;
+            border: 1px solid rgba(0,0,0,0.03);
         }
 
         .breadcrumb-item a {
@@ -355,6 +410,7 @@ if (isset($_POST['action']) && $_POST['action'] === 'disable_time') {
         .card {
             border-radius: 15px;
             box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+            transition: transform 0.25s ease, box-shadow 0.25s ease;
         }
 
         .btn-custom {
@@ -366,6 +422,159 @@ if (isset($_POST['action']) && $_POST['action'] === 'disable_time') {
             color: #fff;
             border: none;
             border-radius: 5px;
+        }
+
+        /* Tab hover and color styles copied from other admin pages (room.php) */
+        .nav-tabs .nav-link {
+            color: #333;
+            border: 2px solid transparent;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .nav-tabs .nav-link::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.2);
+            transition: left 0.3s ease;
+            z-index: 0;
+        }
+
+        .nav-tabs .nav-link:hover::before {
+            left: 0;
+        }
+
+        .nav-tabs .nav-link span {
+            position: relative;
+            z-index: 1;
+        }
+
+        /* Purple Tab - Enable Attendance */
+        .nav-tabs .nav-link.tab-purple {
+            color: #6a0dad !important;
+        }
+        .nav-tabs .nav-link.tab-purple:hover {
+            background: linear-gradient(135deg, #6a0dad, #8a2be2) !important;
+            border-color: #6a0dad !important;
+            color: #fff !important;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(106, 13, 173, 0.3);
+        }
+        .nav-tabs .nav-link.tab-purple.active {
+            background: linear-gradient(135deg, #6a0dad, #8a2be2) !important;
+            color: white !important;
+            border-color: #6a0dad !important;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(106, 13, 173, 0.4);
+        }
+
+        /* Red Tab - Force Block */
+        .nav-tabs .nav-link.tab-red {
+            color: #f44336 !important;
+        }
+        .nav-tabs .nav-link.tab-red:hover {
+            background: linear-gradient(135deg, #f44336, #d32f2f) !important;
+            border-color: #f44336 !important;
+            color: #fff !important;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(244, 67, 54, 0.3);
+        }
+        .nav-tabs .nav-link.tab-red.active {
+            background: linear-gradient(135deg, #f44336, #d32f2f) !important;
+            color: #fff !important;
+            border-color: #f44336 !important;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(244, 67, 54, 0.4);
+        }
+
+        /* Hostel dashboard stat-box styles (inspired by Student dashboard) */
+        .hostel-stat {
+            position: relative;
+            overflow: hidden;
+            padding: 18px 16px;
+            border-radius: 12px;
+            color: white;
+            text-align: center;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.12);
+            transition: all 0.3s ease;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 200px; /* fixed stable height for all cards */
+            max-height: 200px;
+            min-height: 200px;
+            box-sizing: border-box;
+        }
+
+        .hostel-stat h5 { margin-bottom: 6px; font-size: 1.05rem; font-weight:600; }
+        .hostel-stat p { margin: 0; font-size: 0.95rem; }
+        .hostel-stat .small-muted { color: rgba(255,255,255,0.9); font-size:0.85rem; }
+
+        /* Icon inside hostel stat (matches Student stat-icon) */
+        .hostel-stat .stat-icon {
+            font-size: 2.2rem;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 6px rgba(0,0,0,0.18);
+            opacity: 0.95;
+        }
+
+        /* Decorative overlay like Student page */
+        .hostel-stat::before {
+            content: '';
+            position: absolute;
+            top: -45%;
+            right: -45%;
+            width: 180%;
+            height: 180%;
+            background: rgba(255,255,255,0.08);
+            transform: rotate(45deg);
+            transition: all 0.5s ease;
+        }
+
+        .hostel-stat:hover::before { transform: rotate(45deg) translateY(-8%); }
+
+        .hostel-purple { background: linear-gradient(135deg,#9c27b0 0%,#7b1fa2 100%); }
+        .hostel-orange { background: linear-gradient(135deg,#ff9800 0%,#f57c00 100%); }
+        .hostel-red { background: linear-gradient(135deg,#f44336 0%,#d32f2f 100%); }
+        .hostel-gray { background: linear-gradient(135deg,#9e9e9e 0%,#616161 100%); }
+
+        .hostel-stat:hover { transform: translateY(-5px); box-shadow: 0 12px 35px rgba(0,0,0,0.2); }
+
+        /* Responsive: slightly smaller fixed height on small screens */
+        @media (max-width: 768px) {
+            .hostel-stat { height: 160px; max-height: 160px; min-height: 160px; }
+        }
+
+        /* Make regular cards lift on hover to match hostel-stat style */
+        .card:hover {
+            transform: translateY(-6px);
+            box-shadow: 0 16px 40px rgba(0,0,0,0.12);
+        }
+
+        /* Buttons: subtle lift and color transition */
+        .btn, .btn-custom {
+            transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
+        }
+        .btn:hover, .btn-custom:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 24px rgba(0,0,0,0.12);
+            filter: brightness(1.02);
+        }
+
+        /* Table row hover: gentle highlight + subtle elevation on cells */
+        .grad-table tbody tr:hover {
+            background-color: rgba(33, 150, 243, 0.06);
+        }
+        .grad-table tbody tr:hover td {
+            transition: box-shadow 0.18s ease, transform 0.18s ease;
+            box-shadow: 0 6px 18px rgba(0,0,0,0.06);
         }
 
    
@@ -451,162 +660,261 @@ if (isset($_POST['action']) && $_POST['action'] === 'disable_time') {
         <?php include '../assets/topbar.php'; ?>
 
         <div class="breadcrumb-area custom-gradient">
-            <nav aria-label="breadcrumb">
+            <nav aria-label="breadcrumb" class="d-flex justify-content-between align-items-center">
                 <ol class="breadcrumb mb-0">
-                    <li class="breadcrumb-item"><a href="dashboard.php">Home</a></li>
+                    <li class="breadcrumb-item"><a href="index.php">Home</a></li>
                     <li class="breadcrumb-item active" aria-current="page">Attendance Operations</li>
                 </ol>
             </nav>
         </div>
 
-        <div class="custom-tabs">
-            <ul class="nav nav-tabs" role="tablist">
-                <li class="nav-item" role="presentation">
-                    <a class="nav-link active" data-bs-toggle="tab" id="family-main-tab" href="#enableTime-content"
-                        role="tab" aria-selected="true">
-                        <span class="hidden-xs-down" style="font-size: 0.9em;">
-                            <i class="fas fa-clock tab-icon"></i>
-                            Enable Attendance Time</span>
-                    </a>
-                </li>
-
-                <li class="nav-item" role="presentation">
-                    <a class="nav-link" data-bs-toggle="tab" id="processed-main-tab" href="#forceBlock-content"
-                        role="tab" aria-selected="false">
-                        <span class="hidden-xs-down" style="font-size: 0.9em;"> <i class="fas fa-ban tab-icon"></i>
-                            Force Block</span>
-                    </a>
-                </li>
-                <li class="nav-item" role="presentation">
-                    <a class="nav-link" data-bs-toggle="tab" id="late-attendance-tab" href="#lateAttendance-content"
-                        role="tab" aria-selected="false">
-                        <span class="hidden-xs-down" style="font-size: 0.9em;"> <i class="fas fa-history tab-icon"></i>
-                            Late Attendance </span>
-                    </a>
-                </li>
-            </ul>
-
-            <div class="tab-content" id="myTabContent">
-                <div class="tab-pane fade show active" id="enableTime-content" role="tabpanel" aria-labelledby="family-main-tab">
-                    <div class="card p-4">
-                        <div class="text-center mb-3">
-                            <i class="bi bi-info-circle text-primary"></i>
-                            <?php
-                            // Force refresh the connection to get latest data
-                            if (isset($conn)) {
-                                $conn->close();
-                            }
-                            include '../db.php';
-                            
-                            // Clear any cached results
-                            $conn->query("SET SESSION query_cache_type = OFF");
-                            
-                            $check = $conn->query("SELECT * FROM attendance_time_control WHERE status='enabled' ORDER BY id DESC LIMIT 1");
-                            if ($check && $check->num_rows > 0) {
-                                $data = $check->fetch_assoc();
-                                echo "<div class='alert alert-success mb-3' role='alert'>
-                                        <h5 class='alert-heading'><i class='fas fa-clock me-2'></i>Active Attendance Time</h5>
-                                        <p class='mb-2'><strong>From Time:</strong> " . date('h:i A', strtotime($data['from_time'])) . "</p>
-                                        <p class='mb-2'><strong>To Time:</strong> " . date('h:i A', strtotime($data['to_time'])) . "</p>
-                                        <p class='mb-2'><strong>Late Entry Time:</strong> " . date('h:i A', strtotime($data['late_entry_time'])) . "</p>
-                                        <hr>
-                                        <p class='mb-0 text-muted'>Attendance is currently being tracked during this period.</p>
-                                    </div>";
-                                echo "<button type='button' class='btn btn-danger' id='disableTimeBtn' data-time-id='{$data['id']}'>
-                                        <i class='fas fa-times-circle me-1'></i>Disable Attendance Time
-                                    </button>";
-                            } else {
-                                echo "<div class='alert alert-info mb-3' role='alert'>
-                                        <i class='fas fa-info-circle me-2'></i>
-                                        No active attendance time. Click below to enable new timing.
-                                    </div>";
-                                echo "<button class='btn btn-success btn-custom mt-2' data-bs-toggle='modal' data-bs-target='#enableModal'>
-                                        <i class='bi bi-calendar-check'></i> Enable Attendance Time
-                                    </button>";
-                            }
-                            ?>
-                        </div>
+        <!-- Tabs in card header to match site style -->
+        <div class="page-panel">
+            <div class="container-fluid">
+            <div class="card mb-3">
+                <div class="card-header d-flex align-items-center justify-content-between">
+                    <ul class="nav nav-tabs card-header-tabs" id="attendanceTab" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link tab-purple active" id="enable-attendance-tab" data-bs-toggle="tab" data-bs-target="#enableAttendance-content" type="button" role="tab" aria-controls="enableAttendance-content" aria-selected="true"><span>Enable Attendance Time</span></button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link tab-red" id="force-block-tab" data-bs-toggle="tab" data-bs-target="#forceBlock-content" type="button" role="tab" aria-controls="forceBlock-content" aria-selected="false"><span>Force Block</span></button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link tab-orange" id="late-attendance-tab" data-bs-toggle="tab" data-bs-target="#lateAttendance-content" type="button" role="tab" aria-controls="lateAttendance-content" aria-selected="false"><span>Late Attendance</span></button>
+                        </li>
+                    </ul>
+                    <div class="action-btns">
+                        <!-- placeholder for action buttons if needed -->
                     </div>
                 </div>
+                <div class="card-body">
+                    <div class="tab-content mt-2">
+                        <!-- Enable Attendance Time tab -->
+                        <div class="tab-pane fade show active" id="enableAttendance-content" role="tabpanel" aria-labelledby="enable-attendance-tab">
+                            <!-- Hostel quick-dashboard: show active time per important hostels -->
+                            <div class="row mb-3" id="hostelQuickDashboard">
+                                <?php
+                                // Attempt to show three important hostels (fallback to first 3 if not found)
+                                if (isset($conn)) { $conn->close(); }
+                                include '../db.php';
+                                $conn->query("SET SESSION query_cache_type = OFF");
 
-                <!-- Force Block-->
-                <div class="tab-pane fade" id="forceBlock-content" role="tabpanel" aria-labelledby="processed-main-tab">
-                    <div class="mb-3">
-                        <div class="d-flex align-items-center gap-2 justify-content-end">
-                            <button type="button" class="btn btn-danger d-flex align-items-center" data-bs-toggle="modal" data-bs-target="#blockStudentModal">
-                                <i class="fas fa-user-lock me-2"></i> Force Block Student
-                            </button>
+                                $wanted = [ 'muthulakshmi', 'veda', 'octa' ];
+                                // Build a safe IN clause by fetching all hostels and filtering in PHP (avoid complex prepared IN)
+                                $hostelsRes = $conn->query("SELECT hostel_id, hostel_name FROM hostels ORDER BY hostel_name");
+                                $found = [];
+                                if ($hostelsRes) {
+                                    while ($h = $hostelsRes->fetch_assoc()) {
+                                        $lname = strtolower(trim($h['hostel_name']));
+                                        if (in_array($lname, $wanted)) {
+                                            $found[] = $h;
+                                        }
+                                    }
+                                }
+                                // If not enough found, pick first 3 hostels
+                                if (count($found) < 3) {
+                                    $found = [];
+                                    if ($hostelsRes) {
+                                        $hostelsRes->data_seek(0);
+                                        $i = 0;
+                                        while ($h = $hostelsRes->fetch_assoc()) {
+                                            $found[] = $h;
+                                            $i++; if ($i>=3) break;
+                                        }
+                                    }
+                                }
 
-                            <button id="unblockAllBtn" type="button" class="btn btn-success d-flex align-items-center">
-                                <i class="fas fa-unlock me-1"></i> Unblock All
-                            </button>
+                                foreach ($found as $h) {
+                                    $hid = (int)$h['hostel_id'];
+                                    $timeOut = null;
+                                    // try hostel specific enabled record, only if the column exists
+                                    $colResInner = $conn->query("SHOW COLUMNS FROM attendance_time_control LIKE 'hostel_id'");
+                                    $hasHostelColInner = ($colResInner && $colResInner->num_rows > 0);
+                                    if ($hasHostelColInner) {
+                                        $stmt = $conn->prepare("SELECT * FROM attendance_time_control WHERE status='enabled' AND hostel_id = ? ORDER BY id DESC LIMIT 1");
+                                        if ($stmt) {
+                                            $stmt->bind_param('i', $hid);
+                                            $stmt->execute();
+                                            $r = $stmt->get_result();
+                                            if ($r && $r->num_rows>0) $timeOut = $r->fetch_assoc();
+                                            $stmt->close();
+                                        }
+                                    }
+                                    // fallback to global - choose query depending on whether hostel_id column exists
+                                    if ($timeOut === null) {
+                                        if ($hasHostelColInner) {
+                                            $stmt2 = $conn->prepare("SELECT * FROM attendance_time_control WHERE status='enabled' AND (hostel_id IS NULL OR hostel_id = '') ORDER BY id DESC LIMIT 1");
+                                            if ($stmt2) {
+                                                $stmt2->execute();
+                                                $r2 = $stmt2->get_result();
+                                                if ($r2 && $r2->num_rows>0) $timeOut = $r2->fetch_assoc();
+                                                $stmt2->close();
+                                            }
+                                        } else {
+                                            // simple global query when hostel_id column is not present
+                                            $resG = $conn->query("SELECT * FROM attendance_time_control WHERE status='enabled' ORDER BY id DESC LIMIT 1");
+                                            if ($resG && $resG->num_rows>0) {
+                                                $timeOut = $resG->fetch_assoc();
+                                            }
+                                        }
+                                    }
+
+                                    $from = $to = $late = null;
+                                    if ($timeOut) {
+                                        $from = date('h:i A', strtotime($timeOut['from_time']));
+                                        $to = date('h:i A', strtotime($timeOut['to_time']));
+                                        $late = date('h:i A', strtotime($timeOut['late_entry_time']));
+                                    }
+                                    ?>
+                                    <?php
+                                        $lname = strtolower(trim($h['hostel_name']));
+                                        $colorClass = 'hostel-gray';
+                                        if (strpos($lname, 'muthulakshmi') !== false) { $colorClass = 'hostel-purple'; }
+                                        elseif (strpos($lname, 'octa') !== false) { $colorClass = 'hostel-orange'; }
+                                        elseif (strpos($lname, 'veda') !== false) { $colorClass = 'hostel-red'; }
+                                    ?>
+                                    <div class="col-md-4 mb-2">
+                                        <div class="hostel-stat <?php echo $colorClass; ?>">
+                                            <div class="stat-icon">
+                                                <i class="fas fa-building"></i>
+                                            </div>
+                                            <h5><?php echo htmlspecialchars($h['hostel_name']); ?></h5>
+                                            <?php if ($from): ?>
+                                                <p><strong>From:</strong> <?php echo $from; ?></p>
+                                                <p><strong>To:</strong> <?php echo $to; ?></p>
+                                                <p class="small-muted"><strong>Late:</strong> <?php echo $late; ?></p>
+                                            <?php else: ?>
+                                                <p class="small-muted">No active attendance time</p>
+                                            <?php endif; ?>
+                                        </div>
+                                    </div>
+                                <?php } ?>
+                            </div>
+
+                            <div class="d-flex justify-content-end mb-3">
+                                <label for="hostelFilterTime" class="form-label mb-0 me-2" style="font-weight:600">Hostel:</label>
+                                <select id="hostelFilterTime" class="form-select w-auto d-inline-block">
+                                    <option value="">All Hostels</option>
+                                </select>
+                            </div>
+                            <div id="activeTimeContainer" class="text-center mb-0">
+                                <?php
+                                // Server-side fallback render for initial load (global latest)
+                                if (isset($conn)) { /* already connected */ }
+                                $conn->query("SET SESSION query_cache_type = OFF");
+                                $check = $conn->query("SELECT * FROM attendance_time_control WHERE status='enabled' ORDER BY id DESC LIMIT 1");
+                                if ($check && $check->num_rows > 0) {
+                                    $data = $check->fetch_assoc();
+                                    echo "<div class='alert alert-success mb-3' role='alert'>
+                                            <h5 class='alert-heading'><i class='fas fa-clock me-2'></i>Active Attendance Time</h5>
+                                            <p class='mb-2'><strong>From Time:</strong> " . date('h:i A', strtotime($data['from_time'])) . "</p>
+                                            <p class='mb-2'><strong>To Time:</strong> " . date('h:i A', strtotime($data['to_time'])) . "</p>
+                                            <p class='mb-2'><strong>Late Entry Time:</strong> " . date('h:i A', strtotime($data['late_entry_time'])) . "</p>
+                                            <hr>
+                                            <p class='mb-0 text-muted'>Attendance is currently being tracked during this period.</p>
+                                        </div>";
+                                    echo "<button type='button' class='btn btn-danger' id='disableTimeBtn' data-time-id='{$data['id']}'>
+                                            <i class='fas fa-times-circle me-1'></i>Disable Attendance Time
+                                        </button>";
+                                } else {
+                                    echo "<div class='alert alert-info mb-3' role='alert'>
+                                            <i class='fas fa-info-circle me-2'></i>
+                                            No active attendance time. Click below to enable new timing.
+                                        </div>";
+                                    echo "<button class='btn btn-success btn-custom mt-2' data-bs-toggle='modal' data-bs-target='#enableModal'>
+                                            <i class='bi bi-calendar-check'></i> Enable Attendance Time
+                                        </button>";
+                                }
+                                ?>
+                            </div>
                         </div>
-                        <h4 class="mt-3">Blocked Students Management</h4>
+
+                        <!-- Force Block tab -->
+                        <div class="tab-pane fade" id="forceBlock-content" role="tabpanel" aria-labelledby="force-block-tab">
+                            <div class="mb-3">
+                                <div class="d-flex align-items-center gap-2 justify-content-end">
+                                    <button type="button" class="btn btn-danger d-flex align-items-center" data-bs-toggle="modal" data-bs-target="#blockStudentModal">
+                                        <i class="fas fa-user-lock me-2"></i> Force Block Student
+                                    </button>
+
+                                    <button id="unblockAllBtn" type="button" class="btn btn-success d-flex align-items-center">
+                                        <i class="fas fa-unlock me-1"></i> Unblock All
+                                    </button>
+                                </div>
+                                <h4 class="mt-3">Blocked Students Management</h4>
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="hostelFilterBlocked" class="form-label me-2" style="font-weight:600">Hostel:</label>
+                                <select id="hostelFilterBlocked" class="form-select w-auto d-inline-block">
+                                    <option value="">All Hostels</option>
+                                </select>
+                            </div>
+
+                            <table class="grad-table" id="blocked-table">
+                                <thead>
+                                    <tr>
+                                        <th>Roll Number</th>
+                                        <th>Name</th>
+                                        <th>Department</th>
+                                        <th>Batch</th>
+                                        <th>Room</th>
+                                        <th>Blocked At</th>
+                                        <th>Reason</th>
+                                        <th>Restriction</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="students-blocked-body">
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- Late Attendance tab -->
+                        <div class="tab-pane fade" id="lateAttendance-content" role="tabpanel" aria-labelledby="late-attendance-tab">
+                            <div class="d-flex align-items-center justify-content-between mb-3">
+                                <h4>Late Attendance Management</h4>
+                                <button type="button" class="btn btn-primary d-flex align-items-center" id="refreshLateAttendance">
+                                    <i class="fas fa-sync-alt me-2"></i> Refresh
+                                </button>
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="hostelFilterLate" class="form-label me-2" style="font-weight:600">Hostel:</label>
+                                <select id="hostelFilterLate" class="form-select w-auto d-inline-block">
+                                    <option value="">All Hostels</option>
+                                </select>
+                            </div>
+
+                            <table class="grad-table" id="late-attendance-table">
+                                <thead>
+                                    <tr>
+                                        <th>Roll Number</th>
+                                        <th>Name</th>
+                                        <th>Department</th>
+                                        <th>Batch</th>
+                                        <th>Room</th>
+                                        <th>Attendance Date</th>
+                                        <th>Entry Time</th>
+                                        <th>Status</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="late-attendance-body">
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
-    
-                        <div class="mb-3">
-                            <label for="hostelFilterBlocked" class="form-label me-2" style="font-weight:600">Hostel:</label>
-                            <select id="hostelFilterBlocked" class="form-select w-auto d-inline-block">
-                                <option value="">All Hostels</option>
-                            </select>
-                        </div>
-
-                    <table class="grad-table" id="blocked-table">
-                        <thead>
-                            <tr>
-                                <th>Roll Number</th>
-                                <th>Name</th>
-                                <th>Department</th>
-                                <th>Batch</th>
-                                <th>Room</th>
-                                <th>Blocked At</th>
-                                <th>Reason</th>
-                                <th>Restriction</th>
-                                <th>Action</th>
-                            </tr>
-                        </thead>
-                        <tbody id="students-blocked-body">
-                        </tbody>
-                    </table>
-                </div>
-
-                <!-- Late Attendance -->
-                <div class="tab-pane fade" id="lateAttendance-content" role="tabpanel" aria-labelledby="late-attendance-tab">
-                    <div class="d-flex align-items-center justify-content-between mb-3">
-                        <h4>Late Attendance Management</h4>
-                        <button type="button" class="btn btn-primary d-flex align-items-center" id="refreshLateAttendance">
-                            <i class="fas fa-sync-alt me-2"></i> Refresh
-                        </button>
-                    </div>
-                     
-                        <div class="mb-3">
-                            <label for="hostelFilterLate" class="form-label me-2" style="font-weight:600">Hostel:</label>
-                            <select id="hostelFilterLate" class="form-select w-auto d-inline-block">
-                                <option value="">All Hostels</option>
-                            </select>
-                        </div>
-
-                    <table class="grad-table" id="late-attendance-table">
-                        <thead>
-                            <tr>
-                                <th>Roll Number</th>
-                                <th>Name</th>
-                                <th>Department</th>
-                                <th>Batch</th>
-                                <th>Room</th>
-                                <th>Attendance Date</th>
-                                <th>Entry Time</th> 
-                                <th>Status</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="late-attendance-body">
-                        </tbody>
-                    </table>
                 </div>
             </div>
         </div>
+            </div>
+        </div>
     </div>
+
+            </div>
+        </div>
 
     <!-- Block Student Modal -->
     <div class="modal fade" id="blockStudentModal" tabindex="-1" aria-labelledby="blockStudentModalLabel" aria-hidden="true">
@@ -683,6 +991,7 @@ if (isset($_POST['action']) && $_POST['action'] === 'disable_time') {
                         <input type="time" name="late_entry_time" id="late_entry_time" class="form-control" required>
                         <div class="invalid-feedback" id="late_entry_time_error"></div>
                     </div>
+                    <input type="hidden" name="hostel_id" id="enable_hostel_id" value="">
                 </div>
 
                 <div class="modal-footer">
@@ -744,6 +1053,51 @@ if (isset($_POST['action']) && $_POST['action'] === 'disable_time') {
             Swal.fire('Error!', 'Please fix the time errors before saving', 'error');
         }
     });
+    
+    // Fetch and display active attendance time for selected hostel
+    function fetchActiveAttendanceTime(hostelId) {
+        $.ajax({
+            url: '../api.php',
+            method: 'POST',
+            data: { action: 'get_attendance_time', hostel_id: hostelId || '' },
+            dataType: 'json',
+            success: function(res) {
+                var container = $('#activeTimeContainer');
+                if (res && res.success && res.data) {
+                    var d = res.data;
+                    var html = "<div class='alert alert-success mb-3' role='alert'>" +
+                        "<h5 class='alert-heading'><i class='fas fa-clock me-2'></i>Active Attendance Time</h5>" +
+                        "<p class='mb-2'><strong>From Time:</strong> " + d.from_time_display + "</p>" +
+                        "<p class='mb-2'><strong>To Time:</strong> " + d.to_time_display + "</p>" +
+                        "<p class='mb-2'><strong>Late Entry Time:</strong> " + d.late_entry_time_display + "</p>" +
+                        "<hr><p class='mb-0 text-muted'>Attendance is currently being tracked during this period.</p></div>";
+                    html += "<button type='button' class='btn btn-danger' id='disableTimeBtn' data-time-id='" + d.id + "'>" +
+                        "<i class='fas fa-times-circle me-1'></i>Disable Attendance Time</button>";
+                    container.html(html);
+                } else {
+                    var html = "<div class='alert alert-info mb-3' role='alert'>" +
+                        "<i class='fas fa-info-circle me-2'></i>No active attendance time for selected hostel. Click below to enable new timing." +
+                        "</div>";
+                    html += "<button class='btn btn-success btn-custom mt-2' data-bs-toggle='modal' data-bs-target='#enableModal'>" +
+                        "<i class='bi bi-calendar-check'></i> Enable Attendance Time</button>";
+                    container.html(html);
+                }
+            },
+            error: function() {
+                console.warn('Failed to load active attendance time');
+            }
+        });
+    }
+
+    // When time-hostel filter changes, save selection and fetch active time
+    $(document).on('change', '#hostelFilterTime', function() {
+        var v = $(this).val();
+        try { localStorage.setItem('hostelFilterTime', v); } catch(e) { }
+        fetchActiveAttendanceTime(v);
+    });
+
+    // Initial fetch (for default/global)
+    setTimeout(function() { fetchActiveAttendanceTime($('#hostelFilterTime').val()); }, 500);
 
     $('#from_time').on('change', function() {
         let fromTime = $(this).val();
@@ -788,14 +1142,34 @@ if (isset($_POST['action']) && $_POST['action'] === 'disable_time') {
             method: 'POST',
             data: { action: 'attget_hostels' },
             dataType: 'json',
-            success: function(res) {
+                    success: function(res) {
                 if (res && res.success && Array.isArray(res.data)) {
                     var opts = '<option value="">All Hostels</option>';
                     res.data.forEach(function(h) {
+                        var id = h.hostel_id ?? '';
                         var name = h.hostel_name || '';
-                        opts += '<option value="' + escapeHtml(name) + '">' + escapeHtml(name) + '</option>';
+                        // Use hostel_id as the option value and name as the label
+                        opts += '<option value="' + escapeHtml(id) + '">' + escapeHtml(name) + '</option>';
                     });
-                    $('#hostelFilterBlocked, #hostelFilterLate').html(opts);
+                    $('#hostelFilterBlocked, #hostelFilterLate, #hostelFilterTime').html(opts);
+
+                    // Restore previously selected hostel from localStorage (if any)
+                    var saved = null;
+                    try { saved = localStorage.getItem('hostelFilterTime'); } catch(e) { saved = null; }
+                    if (saved !== null && saved !== undefined) {
+                        // If saved value exists in options, select it
+                        if ($('#hostelFilterTime option[value="' + saved + '"]').length > 0) {
+                            $('#hostelFilterBlocked, #hostelFilterLate, #hostelFilterTime').val(saved);
+                        } else {
+                            // saved not available (maybe hostels changed) -> clear
+                            $('#hostelFilterBlocked, #hostelFilterLate, #hostelFilterTime').val('');
+                        }
+                    }
+
+                    // After populating and restoring selection, load lists
+                    loadBlockedStudents();
+                    loadLateAttendance();
+                    fetchActiveAttendanceTime($('#hostelFilterTime').val());
                 }
             },
             error: function() {
@@ -827,12 +1201,13 @@ if (isset($_POST['action']) && $_POST['action'] === 'disable_time') {
     $(document).on('change', '#hostelFilterLate', function() {
         loadLateAttendance();
     });
+
+    // When enable modal is shown, set the hidden hostel_id to the currently selected hostel
+    $(document).on('show.bs.modal', '#enableModal', function() {
+        $('#enable_hostel_id').val($('#hostelFilterTime').val());
+    });
          
             populateHostelFilters();
-
-            loadBlockedStudents();
-
-            loadLateAttendance();
 
             $('#refreshLateAttendance').on('click', function() {
                 loadLateAttendance();

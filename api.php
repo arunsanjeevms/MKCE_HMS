@@ -4006,16 +4006,30 @@ if (!empty($action)) {
 
 
             if ($hostel_filter !== '') {
-                $sql .= " AND EXISTS (
-                SELECT 1 FROM room_students rsx
-                JOIN rooms rx ON rsx.room_id = rx.room_id
-                JOIN hostels hx ON rx.hostel_id = hx.hostel_id
-                WHERE rsx.student_id = s.student_id AND rsx.is_active = 1 AND rsx.vacated_at IS NULL AND hx.hostel_name = ?
-            )";
-                $stmt = $conn->prepare($sql);
-                $stmt->bind_param('s', $hostel_filter);
-                $stmt->execute();
-                $result = $stmt->get_result();
+                // Allow filtering by numeric hostel_id or by hostel_name (fallback)
+                if (ctype_digit($hostel_filter)) {
+                    $sql .= " AND EXISTS (
+                    SELECT 1 FROM room_students rsx
+                    JOIN rooms rx ON rsx.room_id = rx.room_id
+                    JOIN hostels hx ON rx.hostel_id = hx.hostel_id
+                    WHERE rsx.student_id = s.student_id AND rsx.is_active = 1 AND rsx.vacated_at IS NULL AND hx.hostel_id = ?
+                )";
+                    $stmt = $conn->prepare($sql);
+                    $stmt->bind_param('i', $hostel_filter);
+                    $stmt->execute();
+                    $result = $stmt->get_result();
+                } else {
+                    $sql .= " AND EXISTS (
+                    SELECT 1 FROM room_students rsx
+                    JOIN rooms rx ON rsx.room_id = rx.room_id
+                    JOIN hostels hx ON rx.hostel_id = hx.hostel_id
+                    WHERE rsx.student_id = s.student_id AND rsx.is_active = 1 AND rsx.vacated_at IS NULL AND hx.hostel_name = ?
+                )";
+                    $stmt = $conn->prepare($sql);
+                    $stmt->bind_param('s', $hostel_filter);
+                    $stmt->execute();
+                    $result = $stmt->get_result();
+                }
             } else {
                 $stmt = $conn->prepare($sql);
                 $stmt->execute();
@@ -4128,17 +4142,32 @@ if (!empty($action)) {
 
 
             if ($hostel_filter !== '') {
-                $sql .= " AND EXISTS (
-                SELECT 1 FROM room_students rsx
-                JOIN rooms rx ON rsx.room_id = rx.room_id
-                JOIN hostels hx ON rx.hostel_id = hx.hostel_id
-                WHERE rsx.student_id = s.student_id AND rsx.is_active = 1 AND rsx.vacated_at IS NULL AND hx.hostel_name = ?
-            )";
-                $sql .= " ORDER BY a.date DESC, a.marked_at DESC";
-                $stmt = $conn->prepare($sql);
-                $stmt->bind_param('s', $hostel_filter);
-                $stmt->execute();
-                $result = $stmt->get_result();
+                // Allow filtering by numeric hostel_id or by hostel_name (fallback)
+                if (ctype_digit($hostel_filter)) {
+                    $sql .= " AND EXISTS (
+                    SELECT 1 FROM room_students rsx
+                    JOIN rooms rx ON rsx.room_id = rx.room_id
+                    JOIN hostels hx ON rx.hostel_id = hx.hostel_id
+                    WHERE rsx.student_id = s.student_id AND rsx.is_active = 1 AND rsx.vacated_at IS NULL AND hx.hostel_id = ?
+                )";
+                    $sql .= " ORDER BY a.date DESC, a.marked_at DESC";
+                    $stmt = $conn->prepare($sql);
+                    $stmt->bind_param('i', $hostel_filter);
+                    $stmt->execute();
+                    $result = $stmt->get_result();
+                } else {
+                    $sql .= " AND EXISTS (
+                    SELECT 1 FROM room_students rsx
+                    JOIN rooms rx ON rsx.room_id = rx.room_id
+                    JOIN hostels hx ON rx.hostel_id = hx.hostel_id
+                    WHERE rsx.student_id = s.student_id AND rsx.is_active = 1 AND rsx.vacated_at IS NULL AND hx.hostel_name = ?
+                )";
+                    $sql .= " ORDER BY a.date DESC, a.marked_at DESC";
+                    $stmt = $conn->prepare($sql);
+                    $stmt->bind_param('s', $hostel_filter);
+                    $stmt->execute();
+                    $result = $stmt->get_result();
+                }
             } else {
                 $sql .= " ORDER BY a.date DESC, a.marked_at DESC";
                 $stmt = $conn->prepare($sql);
@@ -4386,6 +4415,44 @@ if (!empty($action)) {
                 }
             }
             echo json_encode(['success' => true, 'data' => $out]);
+            break;
+        case 'get_attendance_time':
+            $hostel_id = trim($_POST['hostel_id'] ?? $_GET['hostel_id'] ?? '');
+            $out = null;
+
+            // Prefer hostel-specific enabled record, fallback to global (hostel_id IS NULL)
+            if ($hostel_id !== '' && ctype_digit($hostel_id)) {
+                $stmt = $conn->prepare("SELECT * FROM attendance_time_control WHERE status='enabled' AND hostel_id = ? ORDER BY id DESC LIMIT 1");
+                if ($stmt) {
+                    $hid = (int)$hostel_id;
+                    $stmt->bind_param('i', $hid);
+                    $stmt->execute();
+                    $res = $stmt->get_result();
+                    if ($res && $res->num_rows > 0) $out = $res->fetch_assoc();
+                    $stmt->close();
+                }
+            }
+
+            if ($out === null) {
+                // Global or any enabled record
+                $stmt2 = $conn->prepare("SELECT * FROM attendance_time_control WHERE status='enabled' AND (hostel_id IS NULL OR hostel_id = '') ORDER BY id DESC LIMIT 1");
+                if ($stmt2) {
+                    $stmt2->execute();
+                    $res2 = $stmt2->get_result();
+                    if ($res2 && $res2->num_rows > 0) $out = $res2->fetch_assoc();
+                    $stmt2->close();
+                }
+            }
+
+            if ($out) {
+                // Format human-readable times
+                $out['from_time_display'] = date('h:i A', strtotime($out['from_time']));
+                $out['to_time_display'] = date('h:i A', strtotime($out['to_time']));
+                $out['late_entry_time_display'] = date('h:i A', strtotime($out['late_entry_time']));
+                echo json_encode(['success' => true, 'data' => $out]);
+            } else {
+                echo json_encode(['success' => false, 'message' => 'No active attendance time found']);
+            }
             break;
         // Faculty 
 
