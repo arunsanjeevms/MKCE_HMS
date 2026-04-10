@@ -1018,6 +1018,7 @@ if (!is_any_admin_role()) {
                                         <th>Fee (₹)</th>
                                         <th>Token Type</th>
                                         <th>Status</th>
+                                        <th>Action</th>
                                     </tr>
                                 </thead>
                                 <tbody></tbody>
@@ -1264,6 +1265,104 @@ if (!is_any_admin_role()) {
                 </div>
             </div>
         </div>
+
+        <div class="modal fade" id="editSpecialTokenModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header" style="background: linear-gradient(135deg, #4e73df, #2e59d9); color: white;">
+                        <h5 class="modal-title">Edit Special Token</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <input type="hidden" id="editSpecialMenuId">
+                        <div class="mb-3">
+                            <label class="form-label">Token Type</label>
+                            <div class="d-flex gap-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="editTokenType" id="editLimitedToken" value="limited" checked>
+                                    <label class="form-check-label" for="editLimitedToken">Limited</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="editTokenType" id="editUnlimitedToken" value="unlimited">
+                                    <label class="form-check-label" for="editUnlimitedToken">Unlimited</label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mb-3" id="editLimitInputContainer">
+                            <label class="form-label">Number of Tokens</label>
+                            <input type="number" id="editTokenLimit" class="form-control" min="1" value="1">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">From Date</label>
+                            <input type="date" id="editSpecialFromDate" class="form-control">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">From Time</label>
+                            <input type="time" id="editSpecialFromTime" class="form-control">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">To Date</label>
+                            <input type="date" id="editSpecialToDate" class="form-control">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">To Time</label>
+                            <input type="time" id="editSpecialToTime" class="form-control">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Token Date</label>
+                            <input type="date" id="editSpecialTokenDate" class="form-control">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Meal Type</label>
+                            <select id="editSpecialMealType" class="form-control">
+                                <option value="Breakfast">Breakfast</option>
+                                <option value="Lunch">Lunch</option>
+                                <option value="Snacks">Snacks</option>
+                                <option value="Dinner">Dinner</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Menu Items</label>
+                            <textarea id="editSpecialMenuItems" class="form-control" rows="3"></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Fee (₹)</label>
+                            <input type="number" id="editSpecialFee" class="form-control" step="0.01">
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                        <button type="button" class="btn btn-primary" onclick="updateSpecialToken()">Save Changes</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal fade" id="activateTokenModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header" style="background: linear-gradient(135deg, #4e73df, #2e59d9); color: white;">
+                        <h5 class="modal-title">Activate Token - Extend Duration</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <input type="hidden" id="activateMenuId">
+                        <div class="mb-3">
+                            <label class="form-label">New To Date</label>
+                            <input type="date" id="activateToDate" class="form-control" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">New To Time</label>
+                            <input type="time" id="activateToTime" class="form-control" required>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                        <button type="button" class="btn btn-success" onclick="saveActivateToken()">Activate Token</button>
+                    </div>
+                </div>
+            </div>
+        </div>
         <?php include '../assets/footer.php'; ?>
     </div>
     <script>
@@ -1277,6 +1376,7 @@ if (!is_any_admin_role()) {
         };
 
         let historyTable = null;
+        let specialTokensData = [];
 
         $(document).ready(function() {
             loadDashboard();
@@ -1402,6 +1502,7 @@ if (!is_any_admin_role()) {
                             status: 'inactive'
                         })));
                     }
+                    specialTokensData = allTokens;
                     displaySpecialTokens(allTokens);
                 }, 'json').fail(function() {
                     $('#specialLoading').hide();
@@ -1422,7 +1523,7 @@ if (!is_any_admin_role()) {
             const tbody = $('#specialTable tbody').empty();
 
             if (!data || data.length === 0) {
-                tbody.html('<tr><td colspan="9" class="text-center">No special tokens</td></tr>');
+                tbody.html('<tr><td colspan="10" class="text-center">No special tokens</td></tr>');
                 return;
             }
 
@@ -1439,6 +1540,12 @@ if (!is_any_admin_role()) {
                     tokenTypeDisplay = `Limited (${item.max_usage})`;
                 }
 
+                const actionButtons = item.status === 'active' ?
+                    `<button class="btn btn-warning btn-sm" onclick="editSpecialToken(${item.menu_id})" title="Edit"><i class="fas fa-edit"></i></button>
+                     <button class="btn btn-danger btn-sm" onclick="deleteSpecialToken(${item.menu_id})" title="Delete"><i class="fas fa-trash"></i></button>` :
+                    `<button class="btn btn-success btn-sm" onclick="activateToken(${item.menu_id})" title="Activate"><i class="fas fa-play"></i></button>
+                     <button class="btn btn-danger btn-sm" onclick="deleteSpecialToken(${item.menu_id})" title="Delete"><i class="fas fa-trash"></i></button>`;
+
                 tbody.append(`
             <tr>
                 <td>${i + 1}</td>
@@ -1450,6 +1557,7 @@ if (!is_any_admin_role()) {
                 <td>₹${parseFloat(item.fee).toFixed(2)}</td>
                 <td><span class="badge bg-info">${tokenTypeDisplay}</span></td>
                 <td>${statusBadge}</td>
+                <td>${actionButtons}</td>
             </tr>
         `);
             });
@@ -1524,6 +1632,142 @@ if (!is_any_admin_role()) {
                     loadDashboard();
                 } else {
                     Swal.fire('Error', response.message || 'Failed to create special token', 'error');
+                }
+            }, 'json');
+        }
+
+        function editSpecialToken(menuId) {
+            const token = specialTokensData.find(t => parseInt(t.menu_id, 10) === parseInt(menuId, 10));
+            if (!token) {
+                Swal.fire('Error', 'Token not found', 'error');
+                return;
+            }
+
+            $('#editSpecialMenuId').val(token.menu_id);
+            $('#editSpecialFromDate').val(token.from_date || '');
+            $('#editSpecialFromTime').val((token.from_time || '').substring(0, 5));
+            $('#editSpecialToDate').val(token.to_date || '');
+            $('#editSpecialToTime').val((token.to_time || '').substring(0, 5));
+            $('#editSpecialTokenDate').val(token.token_date || '');
+            $('#editSpecialMealType').val(token.meal_type || '');
+            $('#editSpecialMenuItems').val(token.menu_items || '');
+            $('#editSpecialFee').val(token.fee || 0);
+
+            if (parseInt(token.max_usage, 10) === -1) {
+                $('#editUnlimitedToken').prop('checked', true);
+                $('#editLimitInputContainer').hide();
+                $('#editTokenLimit').val('');
+            } else {
+                $('#editLimitedToken').prop('checked', true);
+                $('#editLimitInputContainer').show();
+                $('#editTokenLimit').val(parseInt(token.max_usage, 10) || 1);
+            }
+
+            new bootstrap.Modal(document.getElementById('editSpecialTokenModal')).show();
+        }
+
+        function updateSpecialToken() {
+            const tokenType = $('input[name="editTokenType"]:checked').val();
+            const maxUsage = tokenType === 'unlimited' ? -1 : parseInt($('#editTokenLimit').val() || '1', 10);
+            const payload = {
+                action: 'update_special_token',
+                menu_id: $('#editSpecialMenuId').val(),
+                from_date: $('#editSpecialFromDate').val(),
+                from_time: $('#editSpecialFromTime').val(),
+                to_date: $('#editSpecialToDate').val(),
+                to_time: $('#editSpecialToTime').val(),
+                token_date: $('#editSpecialTokenDate').val(),
+                meal_type: $('#editSpecialMealType').val(),
+                menu_items: $('#editSpecialMenuItems').val(),
+                fee: $('#editSpecialFee').val(),
+                max_usage: maxUsage
+            };
+
+            if (!payload.menu_id || !payload.to_date || !payload.to_time) {
+                Swal.fire('Error', 'Missing token details', 'error');
+                return;
+            }
+
+            if (tokenType === 'limited' && (!maxUsage || maxUsage < 1)) {
+                Swal.fire('Error', 'Enter a valid token limit', 'error');
+                return;
+            }
+
+            $.post('../api.php', payload, function(response) {
+                if (response && response.success) {
+                    Swal.fire('Success', response.message || 'Special token updated', 'success');
+                    bootstrap.Modal.getOrCreateInstance(document.getElementById('editSpecialTokenModal')).hide();
+                    loadSpecialTokens();
+                    loadDashboard();
+                } else {
+                    Swal.fire('Error', response.message || 'Failed to update special token', 'error');
+                }
+            }, 'json');
+        }
+
+        function deleteSpecialToken(menuId) {
+            Swal.fire({
+                title: 'Delete Special Token?',
+                text: 'This action cannot be undone',
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#d33',
+                cancelButtonColor: '#6c757d',
+                confirmButtonText: 'Yes, delete it!'
+            }).then((result) => {
+                if (!result.isConfirmed) {
+                    return;
+                }
+
+                $.post('../api.php', {
+                    action: 'delete_special_token',
+                    menu_id: menuId
+                }, function(response) {
+                    if (response && response.success) {
+                        Swal.fire('Deleted!', response.message || 'Special token deleted', 'success');
+                        loadSpecialTokens();
+                        loadDashboard();
+                    } else {
+                        Swal.fire('Error', response.message || 'Failed to delete special token', 'error');
+                    }
+                }, 'json');
+            });
+        }
+
+        function activateToken(menuId) {
+            const token = specialTokensData.find(t => parseInt(t.menu_id, 10) === parseInt(menuId, 10));
+            if (!token) {
+                Swal.fire('Error', 'Token not found', 'error');
+                return;
+            }
+
+            $('#activateMenuId').val(token.menu_id);
+            $('#activateToDate').val(token.to_date || '');
+            $('#activateToTime').val((token.to_time || '').substring(0, 5));
+            new bootstrap.Modal(document.getElementById('activateTokenModal')).show();
+        }
+
+        function saveActivateToken() {
+            const payload = {
+                action: 'update_special_token',
+                menu_id: $('#activateMenuId').val(),
+                to_date: $('#activateToDate').val(),
+                to_time: $('#activateToTime').val()
+            };
+
+            if (!payload.menu_id || !payload.to_date || !payload.to_time) {
+                Swal.fire('Error', 'Please provide To Date and To Time', 'error');
+                return;
+            }
+
+            $.post('../api.php', payload, function(response) {
+                if (response && response.success) {
+                    Swal.fire('Success', response.message || 'Token activated', 'success');
+                    bootstrap.Modal.getOrCreateInstance(document.getElementById('activateTokenModal')).hide();
+                    loadSpecialTokens();
+                    loadDashboard();
+                } else {
+                    Swal.fire('Error', response.message || 'Failed to activate token', 'error');
                 }
             }, 'json');
         }
