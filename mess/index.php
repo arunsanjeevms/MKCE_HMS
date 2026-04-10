@@ -1382,6 +1382,10 @@
                                     <label class="form-label">Number of Tokens</label>
                                     <input type="number" id="tokenLimit" class="form-control" min="1" value="1">
                                 </div>
+                                <div class="mb-3" id="limitInputContainer">
+                                    <label class="form-label">Free Tokens limit</label>
+                                    <input type="number" id="freeTokenLimit" class="form-control" min="0" value="0">
+                                </div>
                                 <div class="mb-3">
                                     <label class="form-label">From Date</label>
                                     <input type="date" id="tokenfromDate" class="form-control" required>
@@ -1875,6 +1879,7 @@ if (maxUsage === -1) {
         meal_type: $('#specialMealType').val(),
         menu_items: $('#specialMenuItems').val(),
         fee: $('#specialtokenFee').val(),
+        freetokenlimit: $('#freeTokenLimit').val(),
         max_usage: maxUsage
     };
 

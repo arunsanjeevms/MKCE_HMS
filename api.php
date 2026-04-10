@@ -5213,6 +5213,7 @@ if (!empty($action)) {
             $to_date    = $_POST['to_date'] ?? '';
             $to_time    = $_POST['to_time'] ?? '';
             $token_date = $_POST['token_date'] ?? '';
+            $free_token_limit = $_POST['freetokenlimit'] ?? null; // Optional field for free token limit
             $meal_type  = $_POST['meal_type'] ?? '';
             $menu_items = $_POST['menu_items'] ?? '';
             $fee        = floatval($_POST['fee'] ?? 0.00);
@@ -5223,12 +5224,12 @@ if (!empty($action)) {
             $stmt = $conn->prepare("
         INSERT INTO specialtokenenable
         (from_date, from_time, to_date, to_time, token_date,
-         meal_type, menu_items, fee, max_usage, used_count, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'active')
+         meal_type, menu_items, fee,free_limit , max_usage, used_count, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?,? , ?, ?, 0, 'active')
     ");
 
             $stmt->bind_param(
-                "sssssssdi",
+                "sssssssdii",
                 $from_date,
                 $from_time,
                 $to_date,
@@ -5237,6 +5238,7 @@ if (!empty($action)) {
                 $meal_type,
                 $menu_items,
                 $fee,
+                $free_token_limit,
                 $max_usage
             );
 
