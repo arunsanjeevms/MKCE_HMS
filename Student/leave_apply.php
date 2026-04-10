@@ -1204,7 +1204,24 @@ if (!isset($_SESSION['user_id']) || (!isset($_SESSION['role']) && !isset($_SESSI
                                             }
                                         },
                                         error: function(xhr, status, error) {
-                                            Swal.fire('Error', 'An error occurred while submitting the form: ' + error, 'error');
+                                            let errorMessage = 'Unable to submit leave application right now. Please try again.';
+                                            if (xhr && xhr.responseText) {
+                                                try {
+                                                    const parsed = JSON.parse(xhr.responseText);
+                                                    if (parsed && parsed.errors && Array.isArray(parsed.errors) && parsed.errors.length > 0) {
+                                                        errorMessage = parsed.errors.join('<br>');
+                                                    } else if (parsed && parsed.message) {
+                                                        errorMessage = parsed.message;
+                                                    }
+                                                } catch (e) {
+                                                    if (error) {
+                                                        errorMessage = 'An error occurred while submitting the form: ' + error;
+                                                    }
+                                                }
+                                            } else if (error) {
+                                                errorMessage = 'An error occurred while submitting the form: ' + error;
+                                            }
+                                            Swal.fire('Error', errorMessage, 'error');
                                             $('#submitLeaveBtn').text($('#leave_id').val() ? 'Update Application' : 'Submit Application').prop('disabled', false).removeClass('disabled');
                                         }
                                     });
