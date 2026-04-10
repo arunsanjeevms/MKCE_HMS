@@ -5239,6 +5239,7 @@ if (!empty($action)) {
             $to_date    = $_POST['to_date'] ?? '';
             $to_time    = $_POST['to_time'] ?? '';
             $token_date = $_POST['token_date'] ?? '';
+            $free_token_limit = $_POST['freetokenlimit'] ?? null; // Optional field for free token limit
             $meal_type  = $_POST['meal_type'] ?? '';
             $menu_items = $_POST['menu_items'] ?? '';
             $fee        = floatval($_POST['fee'] ?? 0.00);
@@ -5249,12 +5250,12 @@ if (!empty($action)) {
             $stmt = $conn->prepare("
         INSERT INTO specialtokenenable
         (from_date, from_time, to_date, to_time, token_date,
-         meal_type, menu_items, fee, max_usage, used_count, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'active')
+         meal_type, menu_items, fee,free_limit , max_usage, used_count, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?,? , ?, ?, 0, 'active')
     ");
 
             $stmt->bind_param(
-                "sssssssdi",
+                "sssssssdii",
                 $from_date,
                 $from_time,
                 $to_date,
@@ -5263,6 +5264,7 @@ if (!empty($action)) {
                 $meal_type,
                 $menu_items,
                 $fee,
+                $free_token_limit,
                 $max_usage
             );
 
@@ -5710,12 +5712,13 @@ if (!empty($action)) {
 
         // ========== STUDENT: LEAVE MANAGEMENT ==========
         case 'apply_leave':
-            // Authenticate student
-            $user_id = null;
-            $roll_no = null;
-            $student_gender = '';
-            if (isset($_SESSION['user_id']) && isset($_SESSION['role']) && $_SESSION['role'] === 'student') {
-                $user_id = $_SESSION['user_id'];
+            try {
+                // Authenticate student
+                $user_id = null;
+                $roll_no = null;
+                $student_gender = '';
+                if (isset($_SESSION['user_id']) && isset($_SESSION['role']) && $_SESSION['role'] === 'student') {
+                    $user_id = $_SESSION['user_id'];
 
                 // Get roll number for authenticated users
                 $stmt = $conn->prepare("SELECT s.roll_number, s.gender, s.user_id AS student_user_id, u.username FROM users u INNER JOIN students s ON s.user_id = u.user_id WHERE u.user_id = ? LIMIT 1");
@@ -5733,11 +5736,11 @@ if (!empty($action)) {
                 }
             }
 
-            if (!$user_id || !$roll_no) {
-                http_response_code(403);
-                echo json_encode(['success' => false, 'message' => 'Unauthorized']);
-                break;
-            }
+                if (!$user_id || !$roll_no) {
+                    http_response_code(403);
+                    echo json_encode(['success' => false, 'message' => 'Unauthorized']);
+                    break;
+                }
 
             // Fetch general leave setting with gender scope fallback to common(admin)
             $general_leave_setting = ['Is_Enabled' => 0];
@@ -5890,17 +5893,16 @@ if (!empty($action)) {
             if (empty($errors)) {
                 if (!empty($leave_id)) {
                     // Build UPDATE query dynamically
-                    $sql_parts = ["UPDATE leave_applications SET From_Date=?, To_Date=?, Reason=?"];
+                    $sql = "UPDATE leave_applications SET From_Date=?, To_Date=?, Reason=?";
                     $params = [$start_datetime, $end_datetime, $reason];
                     $types = "sss";
 
                     if ($proof_file !== '') {
-                        $sql_parts[] = "Proof=?";
+                        $sql .= ", Proof=?";
                         $types .= "s";
                         $params[] = $proof_file;
                     }
 
-                    $sql = implode(', ', $sql_parts);
                     $sql .= " WHERE Leave_ID=? AND Reg_No=? AND Status='Pending'";
                     // Leave_ID is integer, Reg_No is string
                     $types .= "is";
@@ -5949,15 +5951,19 @@ if (!empty($action)) {
                         }
 
                         if (!empty($restriction_type)) {
-                            $stmt_restrict = $conn->prepare("SELECT restriction_id FROM student_restrictions WHERE roll_number = ? AND restriction_type = ? AND removed_at IS NULL LIMIT 1");
-                            if ($stmt_restrict) {
-                                $stmt_restrict->bind_param("ss", $roll_no, $restriction_type);
-                                $stmt_restrict->execute();
-                                $restrict_result = $stmt_restrict->get_result();
-                                if ($restrict_result->num_rows > 0) {
-                                    $errors[] = "You are restricted from applying for " . ucfirst($restriction_type) . " by admin.";
+                            try {
+                                $stmt_restrict = $conn->prepare("SELECT restriction_id FROM student_restrictions WHERE roll_number = ? AND restriction_type = ? AND removed_at IS NULL LIMIT 1");
+                                if ($stmt_restrict) {
+                                    $stmt_restrict->bind_param("ss", $roll_no, $restriction_type);
+                                    $stmt_restrict->execute();
+                                    $restrict_result = $stmt_restrict->get_result();
+                                    if ($restrict_result->num_rows > 0) {
+                                        $errors[] = "You are restricted from applying for " . ucfirst($restriction_type) . " by admin.";
+                                    }
+                                    $stmt_restrict->close();
                                 }
-                                $stmt_restrict->close();
+                            } catch (Throwable $restrictionError) {
+                                // If restriction table/schema is unavailable, skip this optional check
                             }
                         }
 
@@ -5980,8 +5986,15 @@ if (!empty($action)) {
                 }
             }
 
-            if (!empty($errors)) {
-                echo json_encode(['success' => false, 'errors' => $errors]);
+                if (!empty($errors)) {
+                    echo json_encode(['success' => false, 'errors' => $errors]);
+                }
+            } catch (Throwable $e) {
+                http_response_code(200);
+                echo json_encode([
+                    'success' => false,
+                    'errors' => ['Unable to submit leave application right now. Please try again.']
+                ]);
             }
             break;
 

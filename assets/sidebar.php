@@ -221,11 +221,6 @@
         <span>General Leave</span>
     </a>
 
-    <a href="student_restrictions.php" class="menu-item">
-    <i class="fa-solid fa-lock" style="color: #FF6B6B;"></i>
-        <span>Student Restrictions</span>
-    </a>
-
     <a href="admin_mess_index.php" class="menu-item">
     <i class="fa-solid fa-bowl-food" style="color: #BBBBBD;"></i>
         <span>Mess Menu </span>
