@@ -1052,6 +1052,14 @@ Student Status
         <input class="form-check-input" type="checkbox" name="reports[]" value="blocked" id="blockedCheckbox" checked>
         <label class="form-check-label" for="blockedCheckbox">Blocked Students</label>
     </div>
+    <div class="form-check">
+        <input class="form-check-input" type="checkbox" name="reports[]" value="manual_present" id="manualPresentCheckbox">
+        <label class="form-check-label" for="manualPresentCheckbox">Manual Present</label>
+    </div>
+    <div class="form-check">
+        <input class="form-check-input" type="checkbox" name="reports[]" value="manual_leave" id="manualLeaveCheckbox">
+        <label class="form-check-label" for="manualLeaveCheckbox">Manual Leave</label>
+    </div>
     <div class="form-check mt-2">
         <input class="form-check-input" type="checkbox" id="floorWiseCheckbox" name="floor_wise" value="1">
         <label class="form-check-label" for="floorWiseCheckbox">Download Floor-wise Details</label>
@@ -2087,7 +2095,9 @@ function loadOnLeaveStudents() {
                 'absent': 'Absent Students',
                 'blocked': 'Blocked Students',
                 'late_entry': 'Late Entry Students',
-                'on_leave': 'Students On Leave'
+                'on_leave': 'Students On Leave',
+                'manual_present': 'Manual Present',
+                'manual_leave': 'Manual Leave'
             };
 
 
@@ -2179,7 +2189,7 @@ function loadOnLeaveStudents() {
             let firstTable = true;
 
             // --- TABLES ---
-            const defaultReportOrder = ['present', 'late_entry', 'on_leave', 'absent', 'blocked'];
+            const defaultReportOrder = ['present', 'late_entry', 'on_leave', 'absent', 'blocked', 'manual_present', 'manual_leave'];
             // Only include report types that the API returned (i.e., the user requested)
             const reportOrder = defaultReportOrder.filter(k => Object.prototype.hasOwnProperty.call(data, k));
 
@@ -2224,6 +2234,18 @@ function loadOnLeaveStudents() {
                         s.room_number || '-',
                         s.attendance_status || 'Not Marked',
                         s.blocked_at || '-'
+                    ]);
+                } else if (type === 'manual_present' || type === 'manual_leave') {
+                    headCols = ["Roll No", "Name", "Department", "Year", "Floor", "Reason", "Room", "Date/Time"];
+                    tableData = students.map(s => [
+                        s.roll_number,
+                        s.name,
+                        s.department,
+                        s.academic_batch,
+                        s.floor || '-',
+                        s.reason || "-",
+                        s.room_number || "-",
+                        s.marked_at || "-"
                     ]);
                 } else {
                     headCols = ["Roll No", "Name", "Department", "Year", "Floor", "Room", "Date/Time"];
@@ -2280,6 +2302,17 @@ function loadOnLeaveStudents() {
                                     s.room_number || '-',
                                     s.attendance_status || 'Not Marked',
                                     s.blocked_at || '-'
+                                ];
+                            } else if (type === 'manual_present' || type === 'manual_leave') {
+                                return [
+                                    s.roll_number,
+                                    s.name,
+                                    s.department,
+                                    s.academic_batch,
+                                    s.floor || '-',
+                                    s.reason || "-",
+                                    s.room_number || '-',
+                                    s.marked_at || '-'
                                 ];
                             }
                             return [

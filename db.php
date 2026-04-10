@@ -3,13 +3,13 @@
 $servername = "localhost";
 $username = "root";
 $password = "";
-$dbname = "mkce_hms";
+$dbname = "hostel";
 
 $conn = new mysqli(
     "localhost",
     "root",
     "",
-    "mkce_hms",
+    "hostel",
     3306
 );
 

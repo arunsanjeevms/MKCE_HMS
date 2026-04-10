@@ -1,4 +1,5 @@
 ﻿<?php
+ob_start(); // Start output buffering to catch any stray output
 session_start();
 include 'db.php'; // your DB connection ($conn)
 
@@ -3800,6 +3801,60 @@ if (!empty($action)) {
                         while ($r = $res->fetch_assoc()) $rows[] = $r;
                     }
                     $stmt->close();
+                } elseif ($type === 'manual_present') {
+                    $sql = "SELECT s.roll_number, s.name, s.department, s.academic_batch, r.room_number, r.floor, a.marked_at, a.reason, a.status
+                    FROM attendance a
+                    JOIN students s ON a.student_id = s.student_id
+                    LEFT JOIN room_students rs ON s.student_id = rs.student_id AND rs.is_active = 1 AND rs.vacated_at IS NULL
+                    LEFT JOIN rooms r ON rs.room_id = r.room_id";
+                    if (!empty($hostel_filter)) {
+                        $sql .= "
+                        JOIN room_students rs2 ON s.student_id = rs2.student_id AND rs2.is_active = 1 AND rs2.vacated_at IS NULL
+                        JOIN rooms r2 ON rs2.room_id = r2.room_id
+                        JOIN hostels h ON r2.hostel_id = h.hostel_id AND h.hostel_name = ?
+                    ";
+                    }
+                    $sql .= " WHERE a.date = ? AND (a.status = 'Present' OR LOWER(TRIM(a.status)) LIKE '%late%') AND a.reason IS NOT NULL AND TRIM(a.reason) != '' ORDER BY (FIELD(r.floor,'I','II','III','IV','V')=0), FIELD(r.floor,'I','II','III','IV','V'), r.room_number, s.roll_number";
+                    $stmt = $conn->prepare($sql);
+                    if (!empty($hostel_filter)) {
+                        $stmt->bind_param('ss', $hostel_filter, $date);
+                    } else {
+                        $stmt->bind_param('s', $date);
+                    }
+                    $stmt->execute();
+                    $res = $stmt->get_result();
+                    $rows = [];
+                    if ($res) {
+                        while ($r = $res->fetch_assoc()) $rows[] = $r;
+                    }
+                    $stmt->close();
+                } elseif ($type === 'manual_leave') {
+                    $sql = "SELECT s.roll_number, s.name, s.department, s.academic_batch, r.room_number, r.floor, a.marked_at, a.reason, a.status
+                    FROM attendance a
+                    JOIN students s ON a.student_id = s.student_id
+                    LEFT JOIN room_students rs ON s.student_id = rs.student_id AND rs.is_active = 1 AND rs.vacated_at IS NULL
+                    LEFT JOIN rooms r ON rs.room_id = r.room_id";
+                    if (!empty($hostel_filter)) {
+                        $sql .= "
+                        JOIN room_students rs2 ON s.student_id = rs2.student_id AND rs2.is_active = 1 AND rs2.vacated_at IS NULL
+                        JOIN rooms r2 ON rs2.room_id = r2.room_id
+                        JOIN hostels h ON r2.hostel_id = h.hostel_id AND h.hostel_name = ?
+                    ";
+                    }
+                    $sql .= " WHERE a.date = ? AND a.status = 'On Leave' AND a.reason IS NOT NULL AND TRIM(a.reason) != '' ORDER BY (FIELD(r.floor,'I','II','III','IV','V')=0), FIELD(r.floor,'I','II','III','IV','V'), r.room_number, s.roll_number";
+                    $stmt = $conn->prepare($sql);
+                    if (!empty($hostel_filter)) {
+                        $stmt->bind_param('ss', $hostel_filter, $date);
+                    } else {
+                        $stmt->bind_param('s', $date);
+                    }
+                    $stmt->execute();
+                    $res = $stmt->get_result();
+                    $rows = [];
+                    if ($res) {
+                        while ($r = $res->fetch_assoc()) $rows[] = $r;
+                    }
+                    $stmt->close();
                 } else {
                     continue;
                 }
@@ -3984,138 +4039,213 @@ if (!empty($action)) {
             break;
 
         case 'mark_manual_present':
-            $roll_number = trim($_POST['roll_number'] ?? '');
-            $selectedDate = $_POST['selectedDate'] ?? date('Y-m-d');
-            $reason = trim($_POST['reason'] ?? '');
+            try {
+                $roll_number = trim($_POST['roll_number'] ?? '');
+                $selectedDate = $_POST['selectedDate'] ?? date('Y-m-d');
+                $reason = trim($_POST['reason'] ?? '');
 
-            if (!$roll_number) {
-                echo json_encode(['success' => false, 'message' => 'Roll number required']);
-                break;
-            }
+                if (!$roll_number) {
+                    ob_clean();
+                    echo json_encode(['success' => false, 'message' => 'Roll number required']);
+                    break;
+                }
 
-            if (!$reason) {
-                echo json_encode(['success' => false, 'message' => 'Reason required']);
-                break;
-            }
+                if (!$reason) {
+                    ob_clean();
+                    echo json_encode(['success' => false, 'message' => 'Reason required']);
+                    break;
+                }
 
-            $s = $conn->prepare("SELECT student_id FROM students WHERE roll_number = ? LIMIT 1");
-            $s->bind_param('s', $roll_number);
-            $s->execute();
-            $sr = $s->get_result();
+                if (!isset($conn) || $conn === null) {
+                    ob_clean();
+                    echo json_encode(['success' => false, 'message' => 'Database connection error']);
+                    break;
+                }
 
-            if ($sr->num_rows === 0) {
+                $s = $conn->prepare("SELECT student_id FROM students WHERE roll_number = ? LIMIT 1");
+                if (!$s) {
+                    ob_clean();
+                    echo json_encode(['success' => false, 'message' => 'Database query error: ' . $conn->error]);
+                    break;
+                }
+                $s->bind_param('s', $roll_number);
+                $s->execute();
+                $sr = $s->get_result();
+
+                if ($sr->num_rows === 0) {
+                    $s->close();
+                    ob_clean();
+                    echo json_encode(['success' => false, 'message' => 'Student not found']);
+                    break;
+                }
+
+                $student = $sr->fetch_assoc();
+                $student_id = (int)$student['student_id'];
                 $s->close();
-                echo json_encode(['success' => false, 'message' => 'Student not found']);
-                break;
-            }
 
-            $student = $sr->fetch_assoc();
-            $student_id = (int)$student['student_id'];
-            $s->close();
+                // Determine if present or late entry based on late_entry_time
+                $late_time = null;
+                $timeRes = $conn->query("SELECT late_entry_time FROM attendance_time_control WHERE status = 'enabled' ORDER BY id DESC LIMIT 1");
+                if ($timeRes && $timeRes->num_rows > 0) {
+                    $row = $timeRes->fetch_assoc();
+                    if (!empty($row['late_entry_time'])) $late_time = $row['late_entry_time'];
+                }
+                $current_time = date('H:i:s');
+                $statusToSet = ($late_time && strtotime($current_time) > strtotime($late_time)) ? 'Late Entry' : 'Present';
 
-            // Determine if present or late entry based on late_entry_time
-            $late_time = null;
-            $timeRes = $conn->query("SELECT late_entry_time FROM attendance_time_control WHERE status = 'enabled' ORDER BY id DESC LIMIT 1");
-            if ($timeRes && $timeRes->num_rows > 0) {
-                $row = $timeRes->fetch_assoc();
-                if (!empty($row['late_entry_time'])) $late_time = $row['late_entry_time'];
-            }
-            $current_time = date('H:i:s');
-            $statusToSet = ($late_time && strtotime($current_time) > strtotime($late_time)) ? 'Late Entry' : 'Present';
+                // Check if attendance record exists
+                $chk = $conn->prepare("SELECT attendance_id FROM attendance WHERE student_id = ? AND date = ?");
+                if (!$chk) {
+                    ob_clean();
+                    echo json_encode(['success' => false, 'message' => 'Database query error: ' . $conn->error]);
+                    break;
+                }
+                $chk->bind_param('is', $student_id, $selectedDate);
+                $chk->execute();
+                $chkResult = $chk->get_result();
 
-            // Check if attendance record exists
-            $chk = $conn->prepare("SELECT attendance_id FROM attendance WHERE student_id = ? AND date = ?");
-            $chk->bind_param('is', $student_id, $selectedDate);
-            $chk->execute();
-            $chkResult = $chk->get_result();
+                if ($chkResult->num_rows > 0) {
+                    $update = $conn->prepare("UPDATE attendance SET status = ?, reason = ?, marked_at = NOW() WHERE student_id = ? AND date = ?");
+                    if (!$update) {
+                        ob_clean();
+                        echo json_encode(['success' => false, 'message' => 'Database query error: ' . $conn->error]);
+                        $chk->close();
+                        break;
+                    }
+                    $update->bind_param('ssis', $statusToSet, $reason, $student_id, $selectedDate);
+                } else {
+                    $update = $conn->prepare("INSERT INTO attendance (student_id, roll_number, date, status, reason, marked_at) VALUES (?, ?, ?, ?, ?, NOW())");
+                    if (!$update) {
+                        ob_clean();
+                        echo json_encode(['success' => false, 'message' => 'Database query error: ' . $conn->error]);
+                        $chk->close();
+                        break;
+                    }
+                    $update->bind_param('issss', $student_id, $roll_number, $selectedDate, $statusToSet, $reason);
+                }
 
-            if ($chkResult->num_rows > 0) {
-                $update = $conn->prepare("UPDATE attendance SET status = ?, reason = ?, marked_at = NOW() WHERE student_id = ? AND date = ?");
-                $update->bind_param('ssis', $statusToSet, $reason, $student_id, $selectedDate);
-            } else {
-                $update = $conn->prepare("INSERT INTO attendance (student_id, roll_number, date, status, reason, marked_at) VALUES (?, ?, ?, ?, ?, NOW())");
-                $update->bind_param('issss', $student_id, $roll_number, $selectedDate, $statusToSet, $reason);
-            }
-
-            if ($update->execute()) {
-                $update->close();
-                $chk->close();
-                echo json_encode(['success' => true, 'message' => 'Student marked as ' . $statusToSet . ' successfully']);
-            } else {
-                $err = $conn->error;
-                $update->close();
-                $chk->close();
-                echo json_encode(['success' => false, 'message' => 'Failed to mark ' . $statusToSet . ': ' . $err]);
+                if ($update->execute()) {
+                    $update->close();
+                    $chk->close();
+                    ob_clean();
+                    echo json_encode(['success' => true, 'message' => 'Student marked as ' . $statusToSet . ' successfully']);
+                } else {
+                    $err = $conn->error;
+                    $update->close();
+                    $chk->close();
+                    ob_clean();
+                    echo json_encode(['success' => false, 'message' => 'Failed to mark ' . $statusToSet . ': ' . $err]);
+                }
+            } catch (Exception $e) {
+                ob_clean();
+                echo json_encode(['success' => false, 'message' => 'Error: ' . $e->getMessage()]);
             }
             break;
 
         case 'mark_manual_leave':
-            $roll_number = trim($_POST['roll_number'] ?? '');
-            $reason = trim($_POST['reason'] ?? '');
-            $leave_type_id = intval($_POST['leave_type_id'] ?? 0);
-            $selectedDate = $_POST['selectedDate'] ?? date('Y-m-d');
+            try {
+                $roll_number = trim($_POST['roll_number'] ?? '');
+                $reason = trim($_POST['reason'] ?? '');
+                $leave_type_id = intval($_POST['leave_type_id'] ?? 0);
+                $selectedDate = $_POST['selectedDate'] ?? date('Y-m-d');
 
-            if (!$roll_number || !$reason) {
-                echo json_encode(['success' => false, 'message' => 'Roll number and reason required']);
-                break;
-            }
-
-            // Lookup student_id
-            $s = $conn->prepare("SELECT student_id FROM students WHERE roll_number = ? LIMIT 1");
-            $s->bind_param('s', $roll_number);
-            $s->execute();
-            $sr = $s->get_result();
-            if ($sr->num_rows === 0) {
-                $s->close();
-                echo json_encode(['success' => false, 'message' => 'Student not found']);
-                break;
-            }
-            $student = $sr->fetch_assoc();
-            $student_id = (int)$student['student_id'];
-            $s->close();
-
-            // Ensure leave application exists for on_leave when leave_type_id provided
-            if ($leave_type_id > 0) {
-                $chkLeave = $conn->prepare("SELECT Leave_ID FROM leave_applications WHERE Reg_No = ? AND DATE(From_Date) = ? AND DATE(To_Date) = ?");
-                if ($chkLeave) {
-                    $chkLeave->bind_param('sss', $roll_number, $selectedDate, $selectedDate);
-                    $chkLeave->execute();
-                    $leaveResult = $chkLeave->get_result();
-                    if ($leaveResult->num_rows === 0) {
-                        $insLeave = $conn->prepare("INSERT INTO leave_applications (Reg_No, LeaveType_ID, From_Date, To_Date, Reason, Status) VALUES (?, ?, ?, ?, ?, 'out')");
-                        if ($insLeave) {
-                            $insLeave->bind_param('issss', $roll_number, $leave_type_id, $selectedDate, $selectedDate, $reason);
-                            $insLeave->execute();
-                            $insLeave->close();
-                        }
-                    }
-                    $chkLeave->close();
+                if (!$roll_number || !$reason) {
+                    ob_clean();
+                    echo json_encode(['success' => false, 'message' => 'Roll number and reason required']);
+                    break;
                 }
-            }
 
-            $statusToSet = 'On Leave';
-            $chk = $conn->prepare("SELECT attendance_id FROM attendance WHERE student_id = ? AND date = ?");
-            $chk->bind_param('is', $student_id, $selectedDate);
-            $chk->execute();
-            $chkResult = $chk->get_result();
+                if (!isset($conn) || $conn === null) {
+                    ob_clean();
+                    echo json_encode(['success' => false, 'message' => 'Database connection error']);
+                    break;
+                }
 
-            if ($chkResult->num_rows > 0) {
-                $update = $conn->prepare("UPDATE attendance SET status = ?, marked_at = NOW() WHERE student_id = ? AND date = ?");
-                $update->bind_param('sis', $statusToSet, $student_id, $selectedDate);
-            } else {
-                $update = $conn->prepare("INSERT INTO attendance (student_id, roll_number, date, status, marked_at) VALUES (?, ?, ?, ?, NOW())");
-                $update->bind_param('isss', $student_id, $roll_number, $selectedDate, $statusToSet);
-            }
+                // Lookup student_id
+                $s = $conn->prepare("SELECT student_id FROM students WHERE roll_number = ? LIMIT 1");
+                if (!$s) {
+                    ob_clean();
+                    echo json_encode(['success' => false, 'message' => 'Database query error: ' . $conn->error]);
+                    break;
+                }
+                $s->bind_param('s', $roll_number);
+                $s->execute();
+                $sr = $s->get_result();
+                if ($sr->num_rows === 0) {
+                    $s->close();
+                    ob_clean();
+                    echo json_encode(['success' => false, 'message' => 'Student not found']);
+                    break;
+                }
+                $student = $sr->fetch_assoc();
+                $student_id = (int)$student['student_id'];
+                $s->close();
 
-            if ($update->execute()) {
-                $update->close();
-                $chk->close();
-                echo json_encode(['success' => true, 'message' => 'Student marked as ' . $statusToSet . ' successfully']);
-            } else {
-                $err = $conn->error;
-                $update->close();
-                $chk->close();
-                echo json_encode(['success' => false, 'message' => 'Failed to mark ' . $statusToSet . ': ' . $err]);
+                // Ensure leave application exists for on_leave when leave_type_id provided
+                if ($leave_type_id > 0) {
+                    $chkLeave = $conn->prepare("SELECT Leave_ID FROM leave_applications WHERE Reg_No = ? AND DATE(From_Date) = ? AND DATE(To_Date) = ?");
+                    if ($chkLeave) {
+                        $chkLeave->bind_param('sss', $roll_number, $selectedDate, $selectedDate);
+                        $chkLeave->execute();
+                        $leaveResult = $chkLeave->get_result();
+                        if ($leaveResult->num_rows === 0) {
+                            $insLeave = $conn->prepare("INSERT INTO leave_applications (Reg_No, LeaveType_ID, From_Date, To_Date, Reason, Status) VALUES (?, ?, ?, ?, ?, 'out')");
+                            if ($insLeave) {
+                                $insLeave->bind_param('sisss', $roll_number, $leave_type_id, $selectedDate, $selectedDate, $reason);
+                                $insLeave->execute();
+                                $insLeave->close();
+                            }
+                        }
+                        $chkLeave->close();
+                    }
+                }
+
+                $statusToSet = 'On Leave';
+                $chk = $conn->prepare("SELECT attendance_id FROM attendance WHERE student_id = ? AND date = ?");
+                if (!$chk) {
+                    ob_clean();
+                    echo json_encode(['success' => false, 'message' => 'Database query error: ' . $conn->error]);
+                    break;
+                }
+                $chk->bind_param('is', $student_id, $selectedDate);
+                $chk->execute();
+                $chkResult = $chk->get_result();
+
+                if ($chkResult->num_rows > 0) {
+                    $update = $conn->prepare("UPDATE attendance SET status = ?, reason = ?, marked_at = NOW() WHERE student_id = ? AND date = ?");
+                    if (!$update) {
+                        ob_clean();
+                        echo json_encode(['success' => false, 'message' => 'Database query error: ' . $conn->error]);
+                        $chk->close();
+                        break;
+                    }
+                    $update->bind_param('ssis', $statusToSet, $reason, $student_id, $selectedDate);
+                } else {
+                    $update = $conn->prepare("INSERT INTO attendance (student_id, roll_number, date, status, reason, marked_at) VALUES (?, ?, ?, ?, ?, NOW())");
+                    if (!$update) {
+                        ob_clean();
+                        echo json_encode(['success' => false, 'message' => 'Database query error: ' . $conn->error]);
+                        $chk->close();
+                        break;
+                    }
+                    $update->bind_param('issss', $student_id, $roll_number, $selectedDate, $statusToSet, $reason);
+                }
+
+                if ($update->execute()) {
+                    $update->close();
+                    $chk->close();
+                    ob_clean();
+                    echo json_encode(['success' => true, 'message' => 'Student marked as ' . $statusToSet . ' successfully']);
+                } else {
+                    $err = $conn->error;
+                    $update->close();
+                    $chk->close();
+                    ob_clean();
+                    echo json_encode(['success' => false, 'message' => 'Failed to mark ' . $statusToSet . ': ' . $err]);
+                }
+            } catch (Exception $e) {
+                ob_clean();
+                echo json_encode(['success' => false, 'message' => 'Error: ' . $e->getMessage()]);
             }
             break;
 
