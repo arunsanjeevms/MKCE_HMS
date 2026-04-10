@@ -921,16 +921,16 @@
                             <div class="d-flex justify-content-between align-items-center mb-3">
                                 <h5><i class="fas fa-utensils"></i> Menu Management</h5>
                                 <div class="btn">
-                                    <button type="button" class="btn btn-secondary" data-bs-toggle="modal" data-bs-target="#breakfastModal">
+                                    <button type="button" class="btn btn-secondary" onclick="openMealModal('Breakfast')">
                                         <i class="fas fa-plus"></i> Breakfast
                                     </button>
-                                    <button type="button" class="btn btn-secondary" data-bs-toggle="modal" data-bs-target="#lunchModal">
+                                    <button type="button" class="btn btn-secondary" onclick="openMealModal('Lunch')">
                                         <i class="fas fa-plus"></i> Lunch
                                     </button>
-                                    <button type="button" class="btn btn-secondary" data-bs-toggle="modal" data-bs-target="#snacksModal">
+                                    <button type="button" class="btn btn-secondary" onclick="openMealModal('Snacks')">
                                         <i class="fas fa-plus"></i> Snacks
                                     </button>
-                                    <button type="button" class="btn btn-secondary" data-bs-toggle="modal" data-bs-target="#dinnerModal">
+                                    <button type="button" class="btn btn-secondary" onclick="openMealModal('Dinner')">
                                         <i class="fas fa-plus"></i> Dinner
                                     </button>
                                 </div>
@@ -1648,6 +1648,29 @@
             $('[data-bs-toggle="tooltip"]').tooltip();
         }
 
+        function openMealModal(mealType) {
+            const modalIdMap = {
+                Breakfast: 'breakfastModal',
+                Lunch: 'lunchModal',
+                Snacks: 'snacksModal',
+                Dinner: 'dinnerModal'
+            };
+
+            const modalId = modalIdMap[mealType];
+            if (!modalId) {
+                return;
+            }
+
+            const modalEl = document.getElementById(modalId);
+            if (!modalEl) {
+                Swal.fire('Error', mealType + ' modal not found', 'error');
+                return;
+            }
+
+            const modal = new bootstrap.Modal(modalEl);
+            modal.show();
+        }
+
         function saveMenuForm(mealType) {
             const prefix = mealType.toLowerCase();
             const data = {
@@ -1665,7 +1688,7 @@
             $.post('../api.php', data, function(response) {
                 if (response && response.success) {
                     Swal.fire('Success', response.message, 'success');
-                    $(`#${prefix}Modal`).modal('hide');
+                    bootstrap.Modal.getOrCreateInstance(document.getElementById(`${prefix}Modal`)).hide();
                     loadMenus();
                     loadStatistics();
                 } else {
@@ -1702,7 +1725,7 @@
             $.post('../api.php', data, function(response) {
                 if (response && response.success) {
                     Swal.fire('Success', 'Menu updated successfully', 'success');
-                    $('#editMenuModal').modal('hide');
+                    bootstrap.Modal.getOrCreateInstance(document.getElementById('editMenuModal')).hide();
                     loadMenus();
                     loadStatistics();
                 }
@@ -1929,7 +1952,7 @@ if (maxUsage === -1) {
     $.post('../api.php', data, function (response) {
         if (response.success) {
             Swal.fire('Success', 'Token updated', 'success');
-            $('#editSpecialTokenModal').modal('hide');
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('editSpecialTokenModal')).hide();
             loadMergedSpecialTokens();
         }
     }, 'json');
@@ -1979,7 +2002,7 @@ if (maxUsage === -1) {
             $.post('../api.php', data, function(response) {
                 if (response && response.success) {
                     Swal.fire('Success', 'Token activated with new duration', 'success');
-                    $('#activateTokenModal').modal('hide');
+                    bootstrap.Modal.getOrCreateInstance(document.getElementById('activateTokenModal')).hide();
                     loadMergedSpecialTokens();
                 }
             }, 'json');

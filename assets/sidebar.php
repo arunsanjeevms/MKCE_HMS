@@ -309,6 +309,7 @@
 
 <script>
     const loaderContainer = document.getElementById('loaderContainer');
+    const currentRole = '<?php echo isset($_SESSION['role']) ? $_SESSION['role'] : ''; ?>';
 
     function showLoader() {
         loaderContainer.classList.add('show');
@@ -363,6 +364,33 @@
             submenuItems: document.querySelectorAll('.submenu-item') // Add submenu items to cache
         };
 
+        // Resolve menu hrefs to the correct role folder when this shared sidebar is used outside role folders.
+        function normalizeMenuLinks() {
+            const path = window.location.pathname.toLowerCase().replace(/\\/g, '/');
+            let rolePrefix = '';
+
+            if (['admin', 'male_admin', 'female_admin'].includes(currentRole) && !path.includes('/admin/')) {
+                rolePrefix = '../admin/';
+            } else if (currentRole === 'student' && !path.includes('/student/')) {
+                rolePrefix = '../Student/';
+            } else if (currentRole === 'mess_supervisor' && !path.includes('/mess/')) {
+                rolePrefix = '../mess/';
+            } else if (currentRole === 'faculty' && !path.includes('/faculty/')) {
+                rolePrefix = '../faculty/';
+            }
+
+            if (!rolePrefix) return;
+
+            const anchors = document.querySelectorAll('.menu-item[href], .submenu-item[href]');
+            anchors.forEach(anchor => {
+                const href = anchor.getAttribute('href') || '';
+                if (!href || href.startsWith('#') || href.startsWith('http') || href.includes('/')) {
+                    return;
+                }
+                anchor.setAttribute('href', rolePrefix + href);
+            });
+        }
+
         // Set active menu item based on current path
         function setActiveMenuItem() {
             const currentPath = window.location.pathname.split('/').pop();
@@ -373,7 +401,7 @@
 
             // Check main menu items
             elements.menuItems.forEach(item => {
-                const itemPath = item.getAttribute('href')?.replace('/', '');
+                const itemPath = item.getAttribute('href')?.split('#')[0]?.split('/').pop();
                 if (itemPath === currentPath) {
                     item.classList.add('active');
                     // If this item has a parent submenu, activate it too
@@ -388,7 +416,7 @@
 
             // Check submenu items
             elements.submenuItems.forEach(item => {
-                const itemPath = item.getAttribute('href')?.replace('/', '');
+                const itemPath = item.getAttribute('href')?.split('#')[0]?.split('/').pop();
                 if (itemPath === currentPath) {
                     item.classList.add('active');
                     // Activate parent submenu and its trigger
@@ -477,6 +505,7 @@
         }
 
         // Initialize everything
+        normalizeMenuLinks();
         setActiveMenuItem();
         initializeEventListeners();
     });
