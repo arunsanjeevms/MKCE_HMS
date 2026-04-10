@@ -194,12 +194,12 @@ if (isset($_POST['action']) && $_POST['action'] === 'disable_time') {
         }
 
         .breadcrumb-area {
-            background: #ffffff; /* white to match page panel */
+            background-image: linear-gradient(to top, #fff1eb 0%, #ace0f9 100%);
             border-radius: 10px;
-            box-shadow: 0 6px 20px rgba(0,0,0,0.04);
-            margin: 18px 20px 6px 20px;
-            padding: 12px 18px;
-            border: 1px solid rgba(0,0,0,0.03);
+            box-shadow: var(--card-shadow);
+            margin: 20px;
+            padding: 15px 20px;
+            border: none;
         }
 
         .breadcrumb-item a {
@@ -330,26 +330,23 @@ if (isset($_POST['action']) && $_POST['action'] === 'disable_time') {
             transition: left 0.3s ease;
         }
 
-        /* Late Attendance tab: pink gradient when active; keep dark text for readability */
-        #late-attendance-tab {
-            color: #222; /* default text color for the late tab (keeps it visible) */
+        /* Orange Tab - Late Attendance */
+        .nav-tabs .nav-link.tab-orange {
+            color: #ff9800 !important;
         }
-
-        #late-attendance-tab:hover {
-            /* Use same gradient as active state on hover for visual consistency */
-            background: linear-gradient(135deg, #c132a7f0, #eaa5ebf0) !important;
-            color: #222 !important;
-            text-decoration: none;
+        .nav-tabs .nav-link.tab-orange:hover {
+            background: linear-gradient(135deg, #ff9800, #f57c00) !important;
+            border-color: #ff9800 !important;
+            color: #fff !important;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(255, 152, 0, 0.3);
         }
-
-        #late-attendance-tab.active {
-            --bs-table-bg: transparent;
-            --bs-table-color: #222;
-            background: linear-gradient(135deg, #c132a7f0, #eaa5ebf0) !important;
-            color: #222 !important; /* ensure text is dark and readable */
-            text-align: center;
-            border: none;
-            border-radius: 5px;
+        .nav-tabs .nav-link.tab-orange.active {
+            background: linear-gradient(135deg, #ff9800, #f57c00) !important;
+            color: #fff !important;
+            border-color: #ff9800 !important;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(255, 152, 0, 0.4);
         }
 
         .sidebar.collapsed+.content .loader-container {
@@ -388,25 +385,6 @@ if (isset($_POST['action']) && $_POST['action'] === 'disable_time') {
             100% {
                 transform: rotate(360deg);
             }
-        }
-
-        .breadcrumb-area {
-            background: #ffffff; /* white to match page panel */
-            border-radius: 10px;
-            box-shadow: 0 6px 20px rgba(0,0,0,0.04);
-            margin: 18px 20px 6px 20px;
-            padding: 12px 18px;
-            border: 1px solid rgba(0,0,0,0.03);
-        }
-
-        .breadcrumb-item a {
-            color: var(--primary-color);
-            text-decoration: none;
-            transition: var(--transition);
-        }
-
-        .breadcrumb-item a:hover {
-            color: #224abe;
         }
 
         .card {
