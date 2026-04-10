@@ -305,13 +305,15 @@ if (isset($_POST['action']) && $_POST['action'] === 'disable_time') {
         .container-fluid {
             padding: 20px;
         }
-        /* Page panel that wraps all tabs/content (keeps breadcrumb outside) */
+        /* Page panel that wraps all tabs/content (keeps breadcrumb outside)
+           Use the same container styling as Leave Approval page (white card look) */
         .page-panel {
-            background: #ffffff; /* white background */
-            border-radius: 12px;
-            padding: 18px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.06);
-            margin: 10px 20px 30px 20px; /* give breathing room from breadcrumb */
+            background: white;
+            border-radius: 10px;
+            box-shadow: var(--card-shadow);
+            margin: 20px;
+            padding: 15px 20px;
+            border: 1px solid rgba(0,0,0,0.03);
         }
 
         .loader-container {
@@ -668,32 +670,25 @@ if (isset($_POST['action']) && $_POST['action'] === 'disable_time') {
             </nav>
         </div>
 
-        <!-- Tabs in card header to match site style -->
-        <div class="page-panel">
-            <div class="container-fluid">
-            <div class="card mb-3">
-                <div class="card-header d-flex align-items-center justify-content-between">
-                    <ul class="nav nav-tabs card-header-tabs" id="attendanceTab" role="tablist">
-                        <li class="nav-item" role="presentation">
-                            <button class="nav-link tab-purple active" id="enable-attendance-tab" data-bs-toggle="tab" data-bs-target="#enableAttendance-content" type="button" role="tab" aria-controls="enableAttendance-content" aria-selected="true"><span>Enable Attendance Time</span></button>
-                        </li>
-                        <li class="nav-item" role="presentation">
-                            <button class="nav-link tab-red" id="force-block-tab" data-bs-toggle="tab" data-bs-target="#forceBlock-content" type="button" role="tab" aria-controls="forceBlock-content" aria-selected="false"><span>Force Block</span></button>
-                        </li>
-                        <li class="nav-item" role="presentation">
-                            <button class="nav-link tab-orange" id="late-attendance-tab" data-bs-toggle="tab" data-bs-target="#lateAttendance-content" type="button" role="tab" aria-controls="lateAttendance-content" aria-selected="false"><span>Late Attendance</span></button>
-                        </li>
-                    </ul>
-                    <div class="action-btns">
-                        <!-- placeholder for action buttons if needed -->
-                    </div>
-                </div>
-                <div class="card-body">
-                    <div class="tab-content mt-2">
-                        <!-- Enable Attendance Time tab -->
-                        <div class="tab-pane fade show active" id="enableAttendance-content" role="tabpanel" aria-labelledby="enable-attendance-tab">
-                            <!-- Hostel quick-dashboard: show active time per important hostels -->
-                            <div class="row mb-3" id="hostelQuickDashboard">
+        <div class="container-fluid">
+            <div class="custom-tabs">
+                <ul class="nav nav-tabs" id="attendanceTab" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link tab-purple active" id="enable-attendance-tab" data-bs-toggle="tab" data-bs-target="#enableAttendance-content" type="button" role="tab" aria-controls="enableAttendance-content" aria-selected="true"><span>Enable Attendance Time</span></button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link tab-red" id="force-block-tab" data-bs-toggle="tab" data-bs-target="#forceBlock-content" type="button" role="tab" aria-controls="forceBlock-content" aria-selected="false"><span>Force Block</span></button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link tab-orange" id="late-attendance-tab" data-bs-toggle="tab" data-bs-target="#lateAttendance-content" type="button" role="tab" aria-controls="lateAttendance-content" aria-selected="false"><span>Late Attendance</span></button>
+                    </li>
+                </ul>
+
+                <div class="tab-content mt-3">
+                    <!-- Enable Attendance Time tab -->
+                    <div class="tab-pane fade show active" id="enableAttendance-content" role="tabpanel" aria-labelledby="enable-attendance-tab">
+                        <!-- Hostel quick-dashboard: show active time per important hostels -->
+                        <div class="row mb-3" id="hostelQuickDashboard">
                                 <?php
                                 // Attempt to show three important hostels (fallback to first 3 if not found)
                                 if (isset($conn)) { $conn->close(); }
@@ -790,15 +785,15 @@ if (isset($_POST['action']) && $_POST['action'] === 'disable_time') {
                                         </div>
                                     </div>
                                 <?php } ?>
-                            </div>
+                        </div>
 
-                            <div class="d-flex justify-content-end mb-3">
+                        <div class="d-flex justify-content-end mb-3">
                                 <label for="hostelFilterTime" class="form-label mb-0 me-2" style="font-weight:600">Hostel:</label>
                                 <select id="hostelFilterTime" class="form-select w-auto d-inline-block">
                                     <option value="">All Hostels</option>
                                 </select>
-                            </div>
-                            <div id="activeTimeContainer" class="text-center mb-0">
+                        </div>
+                        <div id="activeTimeContainer" class="text-center mb-0">
                                 <?php
                                 // Server-side fallback render for initial load (global latest)
                                 if (isset($conn)) { /* already connected */ }
@@ -827,13 +822,13 @@ if (isset($_POST['action']) && $_POST['action'] === 'disable_time') {
                                         </button>";
                                 }
                                 ?>
-                            </div>
                         </div>
+                    </div>
 
-                        <!-- Force Block tab -->
-                        <div class="tab-pane fade" id="forceBlock-content" role="tabpanel" aria-labelledby="force-block-tab">
-                            <div class="mb-3">
-                                <div class="d-flex align-items-center gap-2 justify-content-end">
+                    <!-- Force Block tab -->
+                    <div class="tab-pane fade" id="forceBlock-content" role="tabpanel" aria-labelledby="force-block-tab">
+                        <div class="mb-3">
+                            <div class="d-flex align-items-center gap-2 justify-content-end">
                                     <button type="button" class="btn btn-danger d-flex align-items-center" data-bs-toggle="modal" data-bs-target="#blockStudentModal">
                                         <i class="fas fa-user-lock me-2"></i> Force Block Student
                                     </button>
@@ -843,76 +838,69 @@ if (isset($_POST['action']) && $_POST['action'] === 'disable_time') {
                                     </button>
                                 </div>
                                 <h4 class="mt-3">Blocked Students Management</h4>
-                            </div>
+                        </div>
 
-                            <div class="mb-3">
-                                <label for="hostelFilterBlocked" class="form-label me-2" style="font-weight:600">Hostel:</label>
+                        <div class="mb-3">
+                            <label for="hostelFilterBlocked" class="form-label me-2" style="font-weight:600">Hostel:</label>
                                 <select id="hostelFilterBlocked" class="form-select w-auto d-inline-block">
                                     <option value="">All Hostels</option>
                                 </select>
-                            </div>
-
-                            <table class="grad-table" id="blocked-table">
-                                <thead>
-                                    <tr>
-                                        <th>Roll Number</th>
-                                        <th>Name</th>
-                                        <th>Department</th>
-                                        <th>Batch</th>
-                                        <th>Room</th>
-                                        <th>Blocked At</th>
-                                        <th>Reason</th>
-                                        <th>Restriction</th>
-                                        <th>Action</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="students-blocked-body">
-                                </tbody>
-                            </table>
                         </div>
 
-                        <!-- Late Attendance tab -->
-                        <div class="tab-pane fade" id="lateAttendance-content" role="tabpanel" aria-labelledby="late-attendance-tab">
-                            <div class="d-flex align-items-center justify-content-between mb-3">
-                                <h4>Late Attendance Management</h4>
-                                <button type="button" class="btn btn-primary d-flex align-items-center" id="refreshLateAttendance">
-                                    <i class="fas fa-sync-alt me-2"></i> Refresh
-                                </button>
-                            </div>
+                        <table class="grad-table" id="blocked-table">
+                            <thead>
+                                <tr>
+                                    <th>Roll Number</th>
+                                    <th>Name</th>
+                                    <th>Department</th>
+                                    <th>Batch</th>
+                                    <th>Room</th>
+                                    <th>Blocked At</th>
+                                    <th>Reason</th>
+                                    <th>Restriction</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="students-blocked-body">
+                            </tbody>
+                        </table>
+                    </div>
 
-                            <div class="mb-3">
-                                <label for="hostelFilterLate" class="form-label me-2" style="font-weight:600">Hostel:</label>
-                                <select id="hostelFilterLate" class="form-select w-auto d-inline-block">
-                                    <option value="">All Hostels</option>
-                                </select>
-                            </div>
-
-                            <table class="grad-table" id="late-attendance-table">
-                                <thead>
-                                    <tr>
-                                        <th>Roll Number</th>
-                                        <th>Name</th>
-                                        <th>Department</th>
-                                        <th>Batch</th>
-                                        <th>Room</th>
-                                        <th>Attendance Date</th>
-                                        <th>Entry Time</th>
-                                        <th>Status</th>
-                                        <th>Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="late-attendance-body">
-                                </tbody>
-                            </table>
+                    <!-- Late Attendance tab -->
+                    <div class="tab-pane fade" id="lateAttendance-content" role="tabpanel" aria-labelledby="late-attendance-tab">
+                        <div class="d-flex align-items-center justify-content-between mb-3">
+                            <h4>Late Attendance Management</h4>
+                            <button type="button" class="btn btn-primary d-flex align-items-center" id="refreshLateAttendance">
+                                <i class="fas fa-sync-alt me-2"></i> Refresh
+                            </button>
                         </div>
+
+                        <div class="mb-3">
+                            <label for="hostelFilterLate" class="form-label me-2" style="font-weight:600">Hostel:</label>
+                            <select id="hostelFilterLate" class="form-select w-auto d-inline-block">
+                                <option value="">All Hostels</option>
+                            </select>
+                        </div>
+
+                        <table class="grad-table" id="late-attendance-table">
+                            <thead>
+                                <tr>
+                                    <th>Roll Number</th>
+                                    <th>Name</th>
+                                    <th>Department</th>
+                                    <th>Batch</th>
+                                    <th>Room</th>
+                                    <th>Attendance Date</th>
+                                    <th>Entry Time</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="late-attendance-body">
+                            </tbody>
+                        </table>
                     </div>
                 </div>
-            </div>
-        </div>
-            </div>
-        </div>
-    </div>
-
             </div>
         </div>
 
