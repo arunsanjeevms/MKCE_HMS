@@ -665,6 +665,14 @@ if (!isset($_SESSION['user_id']) || (!isset($_SESSION['role']) && !isset($_SESSI
                                 return new Date().toISOString().split('T')[0];
                             }
 
+                            function getLocalTodayYmd() {
+                                const today = new Date();
+                                const year = today.getFullYear();
+                                const month = String(today.getMonth() + 1).padStart(2, '0');
+                                const day = String(today.getDate()).padStart(2, '0');
+                                return `${year}-${month}-${day}`;
+                            }
+
                             function isOutingSelected() {
                                 const leaveTypeSelect = $('#leave_type_id').find('option:selected');
                                 const leaveType = leaveTypeSelect.data('type-name') ? leaveTypeSelect.data('type-name').toLowerCase() : '';
@@ -701,7 +709,7 @@ if (!isset($_SESSION['user_id']) || (!isset($_SESSION['role']) && !isset($_SESSI
                                 const generalInfo = $('#general_leave_info');
 
                                 if (isOutingSelected()) {
-                                    const todayStr = getTodayYmd();
+                                    const todayStr = getLocalTodayYmd();
 
                                     fromDateInput.attr('min', todayStr).attr('max', todayStr).val(todayStr).prop('readonly', true);
                                     toDateInput.attr('min', todayStr).attr('max', todayStr).val(todayStr).prop('readonly', true);
@@ -1097,7 +1105,7 @@ if (!isset($_SESSION['user_id']) || (!isset($_SESSION['role']) && !isset($_SESSI
                                 }
 
                                 if (leaveType.includes('outing')) {
-                                    const todayStr = getTodayYmd();
+                                    const todayStr = getLocalTodayYmd();
                                     const selectedFromDate = $('#from_date').val();
                                     const selectedToDate = $('#to_date').val();
 
@@ -1144,7 +1152,7 @@ if (!isset($_SESSION['user_id']) || (!isset($_SESSION['role']) && !isset($_SESSI
                                         $('#to_date').addClass('is-invalid');
                                         return;
                                     }
-                                } else if (!leaveType.includes('general')) {
+                                } else if (!leaveType.includes('general') && !leaveType.includes('outing')) {
                                     // Regular leave cannot be applied on the same day
                                     const todayStr = getTodayYmd();
                                     const selectedFromDate = $('#from_date').val();
