@@ -503,9 +503,16 @@ $attendanceFilters = [
                                 <label class="form-label text-muted fw-semibold">Hostel</label>
                                 <select class="form-select filter-trigger" id="hostelFilter">
                                     <option value="">All Hostels</option>
+                                    <?php if ($_SESSION['role'] === 'female_admin') { ?>
+                                    <option value="Muthulakshmi">Muthulakshmi</option>
+                                    <?php } elseif ($_SESSION['role'] === 'male_admin') { ?>
+                                    <option value="Octa">Octa</option>
+                                    <option value="Veda">Veda</option>
+                                    <?php } else { ?>
                                     <option value="Muthulakshmi">Muthulakshmi</option>
                                     <option value="Octa">Octa</option>
                                     <option value="Veda">Veda</option>
+                                    <?php } ?>
                                 </select>
                             </div>
                             <div class="col-md-4">
