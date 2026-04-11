@@ -1,8 +1,6 @@
 ﻿<?php
 ob_start(); // Start output buffering to catch any stray output
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
+session_start();
 include 'db.php'; // your DB connection ($conn)
 include __DIR__ . '/admin/admin_scope.php';
 
@@ -7114,6 +7112,23 @@ if (!empty($action)) {
                 echo json_encode(['status' => true, 'data' => $menus]);
             } catch (Exception $e) {
                 echo json_encode(['status' => false, 'msg' => 'Failed to load menus: ' . $e->getMessage()]);
+            }
+            break;
+
+        case 'read_special_tokens':
+            try {
+                $stmt = $conn->prepare("SELECT * FROM specialtokenenable ORDER BY from_date DESC");
+                $stmt->execute();
+                $result = $stmt->get_result();
+
+                $tokens = [];
+                while ($row = $result->fetch_assoc()) {
+                    $tokens[] = $row;
+                }
+
+                echo json_encode(['status' => true, 'data' => $tokens]);
+            } catch (Exception $e) {
+                echo json_encode(['status' => false, 'msg' => 'Failed to load special tokens: ' . $e->getMessage()]);
             }
             break;
 
