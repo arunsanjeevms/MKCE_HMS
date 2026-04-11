@@ -6781,6 +6781,7 @@ if (!empty($action)) {
                 $stmt_profile = $conn->prepare("
                     SELECT 
                         s.roll_number, s.name, s.department, s.academic_batch, 
+                        s.gender,
                         r.room_number, r.block 
                     FROM students s
                     LEFT JOIN rooms r ON s.room_id = r.room_id
@@ -6808,6 +6809,7 @@ if (!empty($action)) {
                 $dashboard_data['batch'] = htmlspecialchars($student_data['academic_batch'] ?? 'N/A');
                 $dashboard_data['block'] = htmlspecialchars($student_data['block'] ?? 'N/A');
                 $dashboard_data['room_number'] = htmlspecialchars($student_data['room_number'] ?? 'N/A');
+                $dashboard_data['gender'] = htmlspecialchars($student_data['gender'] ?? 'N/A');
 
                 // --- Step B: Calculate Attendance Percentage ---
                 $stmt_attendance = $conn->prepare("
@@ -7135,11 +7137,44 @@ if (!empty($action)) {
         // ========== STUDENT: NOTICES ==========
         case 'get_notices':
             try {
-                // Fetch active notices ordered by creation date (newest first)
-                $stmt = $conn->prepare("SELECT id, content, created_at 
-                                       FROM notices 
-                                       ORDER BY created_at DESC 
-                                       LIMIT 5");
+                // Get student's gender for filtering notices
+                $studentGender = null;
+                
+                // Get gender from session or database if student is logged in
+                if (isset($_SESSION['user_id']) && $_SESSION['role'] === 'student') {
+                    $stmt_gender = $conn->prepare("SELECT gender FROM students WHERE user_id = ?");
+                    $stmt_gender->bind_param("i", $_SESSION['user_id']);
+                    $stmt_gender->execute();
+                    $result_gender = $stmt_gender->get_result();
+                    if ($result_gender && $result_gender->num_rows > 0) {
+                        $row_gender = $result_gender->fetch_assoc();
+                        $studentGender = $row_gender['gender'];
+                    }
+                    $stmt_gender->close();
+                }
+                
+                // Fetch notices filtered by gender (show notices targeted to student's gender or 'all')
+                if ($studentGender) {
+                    // Student is logged in - filter by gender
+                    $stmt = $conn->prepare("SELECT id, title, content, created_at, 
+                                           COALESCE(posted_by_role, 'admin') as posted_by_role,
+                                           COALESCE(target_gender, 'all') as target_gender
+                                           FROM notices 
+                                           WHERE COALESCE(target_gender, 'all') IN (?, 'all')
+                                           ORDER BY created_at DESC 
+                                           LIMIT 5");
+                    $stmt->bind_param("s", $studentGender);
+                } else {
+                    // No gender info - show only 'all' notices
+                    $stmt = $conn->prepare("SELECT id, title, content, created_at, 
+                                           COALESCE(posted_by_role, 'admin') as posted_by_role,
+                                           COALESCE(target_gender, 'all') as target_gender
+                                           FROM notices 
+                                           WHERE COALESCE(target_gender, 'all') = 'all'
+                                           ORDER BY created_at DESC 
+                                           LIMIT 5");
+                }
+                
                 $stmt->execute();
                 $result = $stmt->get_result();
 
@@ -7148,19 +7183,22 @@ if (!empty($action)) {
                     // Format the date for display
                     $created_at = new DateTime($row['created_at']);
                     $row['formatted_date'] = $created_at->format('M j, Y');
-                    // Since there's no title field, we'll use the first part of content as title
-                    $content = trim($row['content']);
-                    $title = substr($content, 0, 50);
-                    if (strlen($content) > 50) {
-                        $title .= '...';
+                    // Use title if available, otherwise use first part of content
+                    if (empty($row['title']) || $row['title'] == '') {
+                        $content = trim($row['content']);
+                        $title = substr($content, 0, 50);
+                        if (strlen($content) > 50) {
+                            $title .= '...';
+                        }
+                        $row['title'] = $title ?: 'Notice';
                     }
-                    $row['title'] = $title ?: 'Notice';
                     $notices[] = $row;
                 }
 
                 echo json_encode([
                     'success' => true,
-                    'notices' => $notices
+                    'notices' => $notices,
+                    'student_gender' => $studentGender
                 ]);
             } catch (Exception $e) {
                 echo json_encode(['success' => false, 'message' => 'Error fetching notices: ' . $e->getMessage()]);

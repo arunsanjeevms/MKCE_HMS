@@ -673,22 +673,95 @@ function dispatchFunction($functionName, $params = []) {
                         break;
                     }
 
-                    // Insert notice into database
-                    $stmt = $conn->prepare("INSERT INTO notices (content, created_at) VALUES (?, NOW())");
-                    $stmt->bind_param('s', $message);
-
-                    if ($stmt->execute()) {
-                        $response = ['success' => true, 'message' => 'Notice sent successfully.'];
-                    } else {
-                        $response = ['success' => false, 'message' => 'Failed to send notice: ' . $conn->error];
+                    // Get current admin role
+                    $currentRole = $_SESSION['role'] ?? 'admin';
+                    
+                    // Determine target gender based on admin role
+                    $targetGender = 'all';
+                    if ($currentRole === 'male_admin') {
+                        $targetGender = 'male';
+                    } elseif ($currentRole === 'female_admin') {
+                        $targetGender = 'female';
                     }
+
+                    // Set title to empty string
+                    $title = '';
+                    
+                    // First, try simple insert with just title and content (guaranteed to work)
+                    $stmt = $conn->prepare("INSERT INTO notices (title, content) VALUES (?, ?)");
+                    
+                    if ($stmt === false) {
+                        error_log("NOTICE ERROR: Failed to prepare basic statement: " . $conn->error);
+                        $response = ['success' => false, 'message' => 'Database error: ' . $conn->error];
+                        break;
+                    }
+                    
+                    $stmt->bind_param('ss', $title, $message);
+                    
+                    if (!$stmt->execute()) {
+                        error_log("NOTICE ERROR: Execute failed: " . $stmt->error);
+                        $response = ['success' => false, 'message' => 'Failed to send notice: ' . $stmt->error];
+                        $stmt->close();
+                        break;
+                    }
+                    
+                    $insertedId = $stmt->insert_id;
                     $stmt->close();
+                    
+                    // Now try to update the new columns if they exist
+                    if ($targetGender !== 'all' || $currentRole !== 'admin') {
+                        $updateStmt = $conn->prepare("UPDATE notices SET posted_by_role = ?, target_gender = ? WHERE id = ?");
+                        if ($updateStmt !== false) {
+                            $updateStmt->bind_param('ssi', $currentRole, $targetGender, $insertedId);
+                            $updateStmt->execute();
+                            $updateStmt->close();
+                        }
+                    }
+                    
+                    $response = ['success' => true, 'message' => 'Notice sent successfully.'];
                     break;
                     
                 case 'get_notices':
-                    // Get notices from database
-                    $stmt = $conn->prepare("SELECT id, content, created_at FROM notices ORDER BY created_at DESC");
-                    $stmt->execute();
+                    // Get notices from database - filtered by student's gender if columns exist
+                    $studentGender = $_POST['student_gender'] ?? ($_GET['student_gender'] ?? '');
+                    
+                    // Try to use gender filtering if columns exist
+                    if (!empty($studentGender)) {
+                        // With gender filtering
+                        $sql = "SELECT id, title, content, created_at, 
+                                COALESCE(posted_by_role, 'admin') as posted_by_role,
+                                COALESCE(target_gender, 'all') as target_gender
+                                FROM notices 
+                                WHERE (COALESCE(target_gender, 'all') = ? OR COALESCE(target_gender, 'all') = 'all') 
+                                ORDER BY created_at DESC";
+                        $stmt = $conn->prepare($sql);
+                        if ($stmt !== false) {
+                            $stmt->bind_param('s', $studentGender);
+                            $stmt->execute();
+                        } else {
+                            // Fallback if target_gender column doesn't exist
+                            $sql = "SELECT id, title, content, created_at FROM notices ORDER BY created_at DESC";
+                            $stmt = $conn->prepare($sql);
+                            $stmt->execute();
+                        }
+                    } else {
+                        // Show all notices if no gender provided
+                        $sql = "SELECT id, title, content, created_at, 
+                                COALESCE(posted_by_role, 'admin') as posted_by_role,
+                                COALESCE(target_gender, 'all') as target_gender
+                                FROM notices 
+                                ORDER BY created_at DESC";
+                        $stmt = $conn->prepare($sql);
+                        if ($stmt !== false) {
+                            $stmt->execute();
+                        } else {
+                            // Fallback
+                            $sql = "SELECT id, title, content, created_at FROM notices ORDER BY created_at DESC";
+                            $stmt = $conn->prepare($sql);
+                            $stmt->execute();
+                        }
+                    }
+                    
                     $result = $stmt->get_result();
                     
                     $notices = [];

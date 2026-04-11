@@ -590,6 +590,9 @@ if (isset($_SESSION['user_id'])) {
         const API_URL = '../api.php'; 
         // Make API_URL globally accessible
         window.API_URL = API_URL;
+        
+        // Store student gender globally for use in loadNotices
+        let studentGender = 'N/A';
 
         /**
          * Fetches dashboard statistics from the backend API using AJAX (Fetch API).
@@ -617,6 +620,9 @@ if (isset($_SESSION['user_id'])) {
 
                 if (result.success && result.data) {
                     const data = result.data;
+                    
+                    // Store student gender for use in loadNotices
+                    studentGender = data.gender || 'N/A';
                     
                     document.getElementById('studentName').textContent = data.name;
                     document.getElementById('attendancePercentage').textContent = `${data.attendance_percentage}%`;
